@@ -17,9 +17,11 @@ self.addEventListener('activate', (event) => {
 
 // Fetch: network-first strategy (always try network, fall back to cache)
 self.addEventListener('fetch', (event) => {
-  // Skip non-GET requests and Google Sheets API calls
+  // Skip non-GET requests, Google Sheets API, and auth callbacks
   if (event.request.method !== 'GET') return;
   if (event.request.url.includes('docs.google.com')) return;
+  if (event.request.url.includes('?code=')) return;
+  if (event.request.url.includes('supabase.co')) return;
 
   event.respondWith(
     fetch(event.request)

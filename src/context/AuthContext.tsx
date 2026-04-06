@@ -26,9 +26,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!configured) { setLoading(false); return; }
 
-    supabase.auth.getSession().then(({ data }) => {
+    // PKCE flow: exchange code from URL query params, then get session
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const init = code
+      ? supabase.auth.exchangeCodeForSession(code).then(() => {
+          // Clean the ?code= from the URL without reloading
+          window.history.replaceState({}, '', window.location.pathname + window.location.hash);
+          return supabase.auth.getSession();
+        })
+      : supabase.auth.getSession();
+
+    init.then(({ data }) => {
       setSession(data.session);
       setUser(data.session?.user ?? null);
+      setLoading(false);
+    }).catch(() => {
+      setAuthError('Error al recuperar la sesión');
       setLoading(false);
     });
 
