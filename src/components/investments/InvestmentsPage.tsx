@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { nanoid } from 'nanoid';
 import {
   TrendingUp,
@@ -242,6 +242,9 @@ export default function InvestmentsPage() {
 
   function deleteFund(id: string) {
     dispatchInvestmentFunds({ type: 'DELETE_FUND', payload: id });
+    investmentEntries
+      .filter((e) => e.fundId === id)
+      .forEach((e) => dispatchInvestmentEntries({ type: 'DELETE_ENTRY', payload: e.id }));
   }
 
   /* ---- Entry modal helpers ---- */
@@ -272,7 +275,7 @@ export default function InvestmentsPage() {
       investedAmount: invested,
       currentValue: current,
       createdAt: editingEntryId
-        ? investmentEntries.find((e) => e.id === editingEntryId)!.createdAt
+        ? (investmentEntries.find((e) => e.id === editingEntryId)?.createdAt ?? new Date().toISOString())
         : new Date().toISOString(),
     };
 
@@ -711,20 +714,66 @@ interface FundModalProps {
 }
 
 function FundModal({ open, onClose, editing, form, setField, onSave }: FundModalProps) {
+  const [lookupStatus, setLookupStatus] = useState<'idle' | 'loading' | 'found' | 'not-found'>('idle');
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const doLookup = useCallback(async (isin: string) => {
+    const normalized = isin.trim().toUpperCase();
+    if (normalized.length < 12) {
+      setLookupStatus('idle');
+      return;
+    }
+    setLookupStatus('loading');
+    try {
+      const { lookupISINOnline } = await import('../../utils/isin-lookup');
+      const result = await lookupISINOnline(normalized);
+      if (result) {
+        setField('fundName', result.name);
+        setLookupStatus('found');
+      } else {
+        setLookupStatus('not-found');
+      }
+    } catch {
+      setLookupStatus('not-found');
+    }
+  }, [setField]);
+
+  const handleISINChange = useCallback((val: string) => {
+    setField('isin', val);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => doLookup(val), 600);
+  }, [setField, doLookup]);
+
+  // Reset status when modal opens/closes
+  useEffect(() => {
+    if (!open) setLookupStatus('idle');
+  }, [open]);
+
   return (
     <Modal open={open} onClose={onClose} title={editing ? 'Editar fondo' : 'Nuevo fondo'}>
       <div className="space-y-4">
+        <div>
+          <Input
+            label="ISIN"
+            value={form.isin}
+            onChange={(e) => handleISINChange(e.target.value)}
+            placeholder="Ej: IE00B03HCZ61"
+          />
+          {lookupStatus === 'loading' && (
+            <p className="text-xs text-blue-500 mt-1 animate-pulse">Buscando fondo...</p>
+          )}
+          {lookupStatus === 'found' && (
+            <p className="text-xs text-green-600 dark:text-green-400 mt-1">Fondo identificado automaticamente</p>
+          )}
+          {lookupStatus === 'not-found' && (
+            <p className="text-xs text-amber-500 mt-1">No encontrado — escribe el nombre manualmente</p>
+          )}
+        </div>
         <Input
           label="Nombre del fondo"
           value={form.fundName}
           onChange={(e) => setField('fundName', e.target.value)}
           placeholder="Ej: Vanguard Global Stock Index"
-        />
-        <Input
-          label="ISIN"
-          value={form.isin}
-          onChange={(e) => setField('isin', e.target.value)}
-          placeholder="Ej: IE00B03HCZ61"
         />
         <Input
           label="Plataforma"

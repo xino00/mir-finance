@@ -18,7 +18,9 @@ export function calculateGuardGross(
 
 export function detectDayType(dateStr: string): DayType {
   if (SPECIAL_DATES_2026.includes(dateStr)) return 'especial';
-  const dayOfWeek = getDay(new Date(dateStr));
+  // Parse as local date to avoid UTC timezone shift (YYYY-MM-DD parses as UTC in Date constructor)
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dayOfWeek = getDay(new Date(y, m - 1, d));
   // 0 = Sunday, 6 = Saturday
   if (dayOfWeek === 0 || dayOfWeek === 6) return 'festivo';
   return 'laborable';

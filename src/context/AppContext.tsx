@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import type {
   Transaction,
   GuardShift,
@@ -83,27 +83,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
     'settings', settingsReducer, defaultSettings,
   );
 
+  const value = useMemo(() => ({
+    transactions,
+    dispatchTransactions,
+    guardShifts,
+    dispatchGuardShifts,
+    investmentFunds,
+    dispatchInvestmentFunds,
+    investmentEntries,
+    dispatchInvestmentEntries,
+    creditCardEntries,
+    dispatchCreditCard,
+    monthlyBudgets,
+    dispatchBudgets,
+    monthlyPayslips,
+    dispatchPayslips,
+    settings,
+    dispatchSettings,
+  }), [
+    transactions, dispatchTransactions,
+    guardShifts, dispatchGuardShifts,
+    investmentFunds, dispatchInvestmentFunds,
+    investmentEntries, dispatchInvestmentEntries,
+    creditCardEntries, dispatchCreditCard,
+    monthlyBudgets, dispatchBudgets,
+    monthlyPayslips, dispatchPayslips,
+    settings, dispatchSettings,
+  ]);
+
   return (
-    <AppContext.Provider
-      value={{
-        transactions,
-        dispatchTransactions,
-        guardShifts,
-        dispatchGuardShifts,
-        investmentFunds,
-        dispatchInvestmentFunds,
-        investmentEntries,
-        dispatchInvestmentEntries,
-        creditCardEntries,
-        dispatchCreditCard,
-        monthlyBudgets,
-        dispatchBudgets,
-        monthlyPayslips,
-        dispatchPayslips,
-        settings,
-        dispatchSettings,
-      }}
-    >
+    <AppContext.Provider value={value}>
       {children}
     </AppContext.Provider>
   );

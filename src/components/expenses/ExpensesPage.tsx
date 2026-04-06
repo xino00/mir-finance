@@ -1,5 +1,5 @@
-import { useMemo, useState, useEffect } from 'react';
-import { Plus, Receipt, Pencil, Trash2, RepeatIcon, Lock, RefreshCw } from 'lucide-react';
+import { useMemo, useState, useEffect, useRef } from 'react';
+import { Plus, Receipt, Pencil, Trash2, RepeatIcon, Lock, RefreshCw, Zap } from 'lucide-react';
 import { nanoid } from 'nanoid';
 
 import { useAppContext } from '../../context/AppContext';
@@ -7,6 +7,7 @@ import { useSelectedMonth } from '../../hooks/useSelectedMonth';
 import { formatCurrency, formatDate, currentDate } from '../../utils';
 import { fetchGoogleSheet } from '../../utils/google-sheets';
 import type { Transaction, RecurringExpense } from '../../types';
+import type { CategoryConfig } from '../../types';
 
 import Card from '../ui/Card';
 import Button from '../ui/Button';
@@ -62,13 +63,19 @@ export default function ExpensesPage() {
   );
 
   const defaultCatId = expenseCategories[0]?.id ?? '';
-  const recurringExpenses = settings.recurringExpenses ?? [];
+  const recurringExpenses = useMemo(
+    () => settings.recurringExpenses ?? [],
+    [settings.recurringExpenses],
+  );
 
   // --- Auto-generate recurring expenses for selectedMonth ---
+  const transactionsRef = useRef(transactions);
+  transactionsRef.current = transactions;
+
   useEffect(() => {
     if (recurringExpenses.length === 0) return;
 
-    const existingRecurringIds = transactions
+    const existingRecurringIds = transactionsRef.current
       .filter((t) => t.date.startsWith(selectedMonth) && t.fromRecurringId)
       .map((t) => t.fromRecurringId);
 
@@ -91,7 +98,7 @@ export default function ExpensesPage() {
       };
       dispatchTransactions({ type: 'ADD_TRANSACTION', payload: tx });
     });
-  }, [selectedMonth, recurringExpenses, transactions, dispatchTransactions]);
+  }, [selectedMonth, recurringExpenses, dispatchTransactions]);
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -359,6 +366,25 @@ export default function ExpensesPage() {
         </div>
       </Card>
 
+      {/* Quick-add expense inline form */}
+      <QuickAddExpense
+        categories={expenseCategories}
+        defaultCategoryId={defaultCatId}
+        onAdd={(amount, categoryId, description) => {
+          const tx: Transaction = {
+            id: nanoid(),
+            date: currentDate(),
+            amount,
+            type: 'expense',
+            category: categoryId,
+            description,
+            isRecurring: false,
+            createdAt: new Date().toISOString(),
+          };
+          dispatchTransactions({ type: 'ADD_TRANSACTION', payload: tx });
+        }}
+      />
+
       {/* Recurring expenses card */}
       {recurringExpenses.length > 0 && (
         <Card
@@ -458,5 +484,86 @@ export default function ExpensesPage() {
         </form>
       </Modal>
     </div>
+  );
+}
+
+/* ---- Quick-add expense inline form ---- */
+
+interface QuickAddExpenseProps {
+  categories: CategoryConfig[];
+  defaultCategoryId: string;
+  onAdd: (amount: number, categoryId: string, description: string) => void;
+}
+
+function QuickAddExpense({ categories, defaultCategoryId, onAdd }: QuickAddExpenseProps) {
+  const [amount, setAmount] = useState('');
+  const [categoryId, setCategoryId] = useState(defaultCategoryId);
+  const [description, setDescription] = useState('');
+  const [saved, setSaved] = useState(false);
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const parsed = parseFloat(amount);
+    if (!parsed || parsed <= 0) return;
+    onAdd(parsed, categoryId, description);
+    setAmount('');
+    setDescription('');
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  }
+
+  return (
+    <Card>
+      <form onSubmit={handleSubmit} className="flex items-end gap-2">
+        <div className="flex-none w-28">
+          <label className="block text-xs text-surface-500 dark:text-surface-400 mb-1">Importe</label>
+          <div className="relative">
+            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-surface-400 text-sm">€</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="0.00"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className="w-full pl-6 pr-2 py-2 rounded-lg border border-surface-300 dark:border-surface-600 bg-white dark:bg-surface-800 text-sm text-surface-800 dark:text-surface-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+            />
+          </div>
+        </div>
+        <div className="flex-1 min-w-0">
+          <label className="block text-xs text-surface-500 dark:text-surface-400 mb-1">Categoria</label>
+          <select
+            value={categoryId}
+            onChange={(e) => setCategoryId(e.target.value)}
+            className="w-full px-2.5 py-2 rounded-lg border border-surface-300 dark:border-surface-600 bg-white dark:bg-surface-800 text-sm text-surface-800 dark:text-surface-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+          >
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex-1 min-w-0">
+          <label className="block text-xs text-surface-500 dark:text-surface-400 mb-1">Descripcion</label>
+          <input
+            type="text"
+            placeholder="Opcional..."
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            className="w-full px-2.5 py-2 rounded-lg border border-surface-300 dark:border-surface-600 bg-white dark:bg-surface-800 text-sm text-surface-800 dark:text-surface-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={!amount || parseFloat(amount) <= 0}
+          className={`flex-none flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+            saved
+              ? 'bg-green-500 text-white'
+              : 'bg-red-500 hover:bg-red-600 disabled:opacity-40 text-white'
+          }`}
+        >
+          {saved ? '✓' : <><Zap size={14} /> Añadir</>}
+        </button>
+      </form>
+    </Card>
   );
 }

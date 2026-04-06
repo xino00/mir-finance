@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/layout/Layout';
 import DashboardPage from './components/dashboard/DashboardPage';
 import IncomePage from './components/income/IncomePage';
@@ -19,6 +19,7 @@ export default function App() {
         <Route path="inversiones" element={<InvestmentsPage />} />
         <Route path="presupuesto" element={<BudgetPage />} />
         <Route path="ajustes" element={<SettingsPage />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
   );

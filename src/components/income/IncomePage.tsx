@@ -12,6 +12,8 @@ import {
   TrendingUp,
   FileText,
   Check,
+  Sparkles,
+  CalendarDays,
 } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { useSelectedMonth } from '../../hooks/useSelectedMonth';
@@ -22,6 +24,7 @@ import {
   calculateGuardGross,
   detectDayType,
   estimatePayslipNet,
+  estimateExtraPayNet,
 } from '../../utils';
 import type {
   GuardShift,
@@ -39,7 +42,7 @@ import Select from '../ui/Select';
 import EmptyState from '../ui/EmptyState';
 import Badge from '../ui/Badge';
 
-type Tab = 'nomina' | 'guardias';
+type Tab = 'nomina' | 'guardias' | 'calendario';
 
 /* ---------- helper to get duration options based on dayType ---------- */
 function durationOptionsForDayType(dayType: DayType): { value: string; label: string }[] {
@@ -167,8 +170,10 @@ export default function IncomePage() {
   const extraPayGross = isExtraPayMonth ? grossSalary : 0;
 
   const estimatedNet = useMemo(
-    () => estimatePayslipNet(grossSalary + extraPayGross, previousMonthGuardsGross),
-    [grossSalary, extraPayGross, previousMonthGuardsGross],
+    () =>
+      estimatePayslipNet(grossSalary, previousMonthGuardsGross) +
+      (isExtraPayMonth ? estimateExtraPayNet(grossSalary) : 0),
+    [grossSalary, isExtraPayMonth, previousMonthGuardsGross],
   );
 
   // Existing payslip record for this month (if any)
@@ -213,6 +218,30 @@ export default function IncomePage() {
       },
     });
   }
+
+  /* ---------- Next-month payslip prediction ---------- */
+  // Guards worked this month will be paid on next month's payslip
+  const nextMonthKey = useMemo(() => {
+    const base = parse(selectedMonth + '-01', 'yyyy-MM-dd', new Date());
+    const next = new Date(base.getFullYear(), base.getMonth() + 1, 1);
+    return format(next, 'yyyy-MM');
+  }, [selectedMonth]);
+
+  const nextMonthLabel = useMemo(() => {
+    const base = parse(nextMonthKey + '-01', 'yyyy-MM-dd', new Date());
+    return format(base, 'MMMM yyyy', { locale: es });
+  }, [nextMonthKey]);
+
+  const nextMonthNum = parseInt(nextMonthKey.split('-')[1], 10);
+  const nextMonthIsExtra = nextMonthNum === 6 || nextMonthNum === 12;
+
+  const predictedNet = useMemo(() => {
+    if (!grossSalary) return 0;
+    return (
+      estimatePayslipNet(grossSalary, monthShiftGross) +
+      (nextMonthIsExtra ? estimateExtraPayNet(grossSalary) : 0)
+    );
+  }, [grossSalary, monthShiftGross, nextMonthIsExtra]);
 
   // Auto-save estimated payslip data when month/values change
   useEffect(() => {
@@ -381,6 +410,16 @@ export default function IncomePage() {
         >
           Guardias
         </button>
+        <button
+          onClick={() => setActiveTab('calendario')}
+          className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+            activeTab === 'calendario'
+              ? 'bg-white dark:bg-surface-700 text-surface-800 dark:text-surface-100 shadow-sm'
+              : 'text-surface-500 dark:text-surface-400 hover:text-surface-700 dark:hover:text-surface-300'
+          }`}
+        >
+          Calendario
+        </button>
       </div>
 
       {/* ============================================================== */}
@@ -542,6 +581,52 @@ export default function IncomePage() {
             </Card>
           )}
 
+          {/* Next-month payslip prediction */}
+          {salaryEntry && (
+            <Card
+              title={`Prediccion nomina — ${nextMonthLabel}`}
+              action={
+                <div className="flex items-center gap-1 text-xs text-primary-500 dark:text-primary-400">
+                  <Sparkles size={12} />
+                  Basado en guardias de este mes
+                </div>
+              }
+            >
+              <div className="space-y-3">
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div className="rounded-lg bg-surface-50 dark:bg-surface-800/60 p-2.5">
+                    <p className="text-xs text-surface-500 dark:text-surface-400">Salario base</p>
+                    <p className="text-sm font-bold text-surface-800 dark:text-surface-100 mt-0.5">
+                      {formatCurrency(grossSalary)}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-surface-50 dark:bg-surface-800/60 p-2.5">
+                    <p className="text-xs text-surface-500 dark:text-surface-400">Guardias ({monthShifts.length})</p>
+                    <p className="text-sm font-bold text-teal-600 dark:text-teal-400 mt-0.5">
+                      {formatCurrency(monthShiftGross)}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-primary-50 dark:bg-primary-900/20 p-2.5">
+                    <p className="text-xs text-primary-600 dark:text-primary-400">Neto estimado</p>
+                    <p className="text-sm font-bold text-primary-700 dark:text-primary-300 mt-0.5">
+                      {formatCurrency(predictedNet)}
+                    </p>
+                  </div>
+                </div>
+                {nextMonthIsExtra && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-lg px-2.5 py-1.5">
+                    {nextMonthNum === 6 ? 'Junio' : 'Diciembre'}: incluye paga extra estimada
+                  </p>
+                )}
+                {monthShifts.length === 0 && (
+                  <p className="text-xs text-surface-400 dark:text-surface-500 text-center">
+                    Sin guardias registradas este mes — la prediccion es solo del salario base.
+                  </p>
+                )}
+              </div>
+            </Card>
+          )}
+
           {/* Income transactions list */}
           <Card
             title="Ingresos del mes"
@@ -697,6 +782,18 @@ export default function IncomePage() {
       )}
 
       {/* ============================================================== */}
+      {/*  TAB: Calendario                                                 */}
+      {/* ============================================================== */}
+      {activeTab === 'calendario' && (
+        <GuardCalendar
+          selectedMonth={selectedMonth}
+          shifts={guardShifts}
+          onAddShift={() => { setActiveTab('guardias'); openNewGuardModal(); }}
+          onEditShift={(shift) => { setActiveTab('guardias'); openEditGuardModal(shift); }}
+        />
+      )}
+
+      {/* ============================================================== */}
       {/*  Modal: Nueva / Editar guardia                                   */}
       {/* ============================================================== */}
       <Modal
@@ -841,6 +938,119 @@ export default function IncomePage() {
           </div>
         </div>
       </Modal>
+    </div>
+  );
+}
+
+/* ============================================================== */
+/*  GuardCalendar component                                       */
+/* ============================================================== */
+
+const DAY_COLORS: Record<DayType, string> = {
+  laborable: 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-200 border-green-300 dark:border-green-700',
+  festivo:   'bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200 border-amber-300 dark:border-amber-700',
+  especial:  'bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-200 border-red-300 dark:border-red-700',
+};
+
+const WEEKDAY_LABELS = ['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sa', 'Do'];
+
+interface GuardCalendarProps {
+  selectedMonth: string; // 'YYYY-MM'
+  shifts: GuardShift[];
+  onAddShift: () => void;
+  onEditShift: (shift: GuardShift) => void;
+}
+
+function GuardCalendar({ selectedMonth, shifts, onAddShift, onEditShift }: GuardCalendarProps) {
+  const [y, m] = selectedMonth.split('-').map(Number);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  // Day-of-week of the 1st (0=Sun→adjust to Mon-based: Mon=0...Sun=6)
+  const firstDow = (new Date(y, m - 1, 1).getDay() + 6) % 7;
+
+  const shiftByDay = useMemo(() => {
+    const map = new Map<string, GuardShift>();
+    shifts
+      .filter((s) => s.date.startsWith(selectedMonth))
+      .forEach((s) => map.set(s.date, s));
+    return map;
+  }, [shifts, selectedMonth]);
+
+  const totalGross = useMemo(
+    () => Array.from(shiftByDay.values()).reduce((s, sh) => s + sh.grossAmount, 0),
+    [shiftByDay],
+  );
+
+  // Build grid cells (nulls = empty leading cells)
+  const cells: (number | null)[] = [
+    ...Array<null>(firstDow).fill(null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
+  // Pad to full weeks
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  return (
+    <div className="space-y-3">
+      {/* Header */}
+      <Card>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <CalendarDays size={18} className="text-primary-500" />
+            <div>
+              <p className="text-xs text-surface-500 dark:text-surface-400">{shiftByDay.size} guardia{shiftByDay.size !== 1 ? 's' : ''} este mes</p>
+              <p className="text-lg font-bold text-green-600 dark:text-green-400">{formatCurrency(totalGross)} bruto</p>
+            </div>
+          </div>
+          <Button size="sm" onClick={onAddShift}><Plus size={14} /> Nueva</Button>
+        </div>
+        {/* Legend */}
+        <div className="flex gap-3 mt-3 text-xs">
+          {(['laborable', 'festivo', 'especial'] as DayType[]).map((dt) => (
+            <div key={dt} className="flex items-center gap-1">
+              <span className={`w-3 h-3 rounded-sm border ${DAY_COLORS[dt]}`} />
+              <span className="text-surface-500 dark:text-surface-400 capitalize">{dayTypeLabel(dt)}</span>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {/* Calendar grid */}
+      <Card>
+        {/* Weekday headers */}
+        <div className="grid grid-cols-7 mb-1">
+          {WEEKDAY_LABELS.map((d) => (
+            <div key={d} className="text-center text-xs font-medium text-surface-400 dark:text-surface-500 py-1">{d}</div>
+          ))}
+        </div>
+        {/* Day cells */}
+        <div className="grid grid-cols-7 gap-1">
+          {cells.map((day, idx) => {
+            if (day === null) return <div key={`empty-${idx}`} />;
+            const dateStr = `${selectedMonth}-${String(day).padStart(2, '0')}`;
+            const shift = shiftByDay.get(dateStr);
+            const isWeekend = ((firstDow + day - 1) % 7) >= 5; // Sat or Sun
+            return (
+              <div
+                key={day}
+                onClick={() => shift && onEditShift(shift)}
+                className={`relative rounded-lg text-center py-1.5 px-0.5 text-xs transition-colors ${
+                  shift
+                    ? `border cursor-pointer hover:opacity-80 ${DAY_COLORS[shift.dayType]}`
+                    : isWeekend
+                    ? 'text-surface-400 dark:text-surface-600'
+                    : 'text-surface-600 dark:text-surface-400'
+                }`}
+              >
+                <span className="font-medium">{day}</span>
+                {shift && (
+                  <p className="text-[10px] leading-tight mt-0.5 font-semibold">
+                    {formatCurrency(shift.grossAmount).replace('€', '')}€
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </Card>
     </div>
   );
 }

@@ -3,7 +3,8 @@ import type { InvestmentFund, InvestmentEntry } from '../../types';
 export type InvestmentFundAction =
   | { type: 'ADD_FUND'; payload: InvestmentFund }
   | { type: 'EDIT_FUND'; payload: InvestmentFund }
-  | { type: 'DELETE_FUND'; payload: string };
+  | { type: 'DELETE_FUND'; payload: string }
+  | { type: 'SET_FUNDS'; payload: InvestmentFund[] };
 
 export type InvestmentEntryAction =
   | { type: 'ADD_ENTRY'; payload: InvestmentEntry }
@@ -19,6 +20,8 @@ export function investmentFundsReducer(state: InvestmentFund[], action: Investme
       return state.map((f) => (f.id === action.payload.id ? action.payload : f));
     case 'DELETE_FUND':
       return state.filter((f) => f.id !== action.payload);
+    case 'SET_FUNDS':
+      return action.payload;
   }
 }
 

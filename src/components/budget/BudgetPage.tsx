@@ -246,18 +246,45 @@ export default function BudgetPage() {
 
       {/* Alerts */}
       {overBudgetCategories.length > 0 && (
-        <Card title="Alertas">
-          <div className="space-y-2">
-            {overBudgetCategories.map((d) => (
-              <div key={d.name} className="flex items-center gap-2 text-sm">
-                <AlertTriangle size={16} className={d.pct > 100 ? 'text-red-500' : 'text-amber-500'} />
-                <span className="text-surface-700 dark:text-surface-300">
-                  <strong>{d.name}</strong>: {d.pct > 100 ? 'superado' : 'al ' + Math.round(d.pct) + '%'} del limite ({formatCurrency(d.gastado)} / {formatCurrency(d.presupuesto)})
+        <div className="space-y-2">
+          {overBudgetCategories.map((d) => {
+            const exceeded = d.pct > 100;
+            return (
+              <div
+                key={d.name}
+                className={`flex items-center gap-3 rounded-xl px-4 py-3 ${
+                  exceeded
+                    ? 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
+                    : 'bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800'
+                }`}
+              >
+                <AlertTriangle
+                  size={18}
+                  className={exceeded ? 'text-red-500 shrink-0' : 'text-amber-500 shrink-0'}
+                />
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-semibold ${exceeded ? 'text-red-700 dark:text-red-300' : 'text-amber-700 dark:text-amber-300'}`}>
+                    {d.name}
+                    <span className="ml-2 text-xs font-normal">
+                      {exceeded
+                        ? `Superado en ${formatCurrency(d.gastado - d.presupuesto)}`
+                        : `${Math.round(d.pct)}% del limite`}
+                    </span>
+                  </p>
+                  <div className="mt-1.5 h-1.5 bg-white/50 dark:bg-surface-900/30 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${exceeded ? 'bg-red-500' : 'bg-amber-500'}`}
+                      style={{ width: `${Math.min(100, d.pct)}%` }}
+                    />
+                  </div>
+                </div>
+                <span className={`text-sm font-bold whitespace-nowrap ${exceeded ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                  {formatCurrency(d.gastado)} / {formatCurrency(d.presupuesto)}
                 </span>
               </div>
-            ))}
-          </div>
-        </Card>
+            );
+          })}
+        </div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

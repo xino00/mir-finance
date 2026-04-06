@@ -2,6 +2,7 @@ import { ChevronLeft, ChevronRight, Sun, Moon, Monitor } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 import { formatMonth } from '../../utils/formatters';
 import { format, addMonths, subMonths, parse } from 'date-fns';
+import AccountMenu from './AccountMenu';
 
 interface HeaderProps {
   selectedMonth: string;
@@ -42,13 +43,16 @@ export default function Header({ selectedMonth, onMonthChange }: HeaderProps) {
           <ChevronRight size={20} />
         </button>
       </div>
-      <button
-        onClick={nextTheme}
-        className="p-2 rounded-lg hover:bg-surface-100 dark:hover:bg-surface-800 text-surface-500"
-        title={`Tema: ${theme}`}
-      >
-        <ThemeIcon size={18} />
-      </button>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={nextTheme}
+          className="p-2 rounded-lg hover:bg-surface-100 dark:hover:bg-surface-800 text-surface-500"
+          title={`Tema: ${theme}`}
+        >
+          <ThemeIcon size={18} />
+        </button>
+        <AccountMenu />
+      </div>
     </header>
   );
 }

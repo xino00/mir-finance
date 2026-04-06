@@ -143,15 +143,17 @@ export default function CreditCardPage() {
       installmentNumber: form.isInstallment ? parseInt(form.installmentNumber) || undefined : undefined,
       totalInstallments: form.isInstallment ? parseInt(form.totalInstallments) || undefined : undefined,
       createdAt: editingId
-        ? creditCardEntries.find((e) => e.id === editingId)!.createdAt
+        ? (creditCardEntries.find((e) => e.id === editingId)?.createdAt ?? new Date().toISOString())
         : new Date().toISOString(),
     };
 
     if (editingId) {
       // Preserve existing status / paidDate when editing
-      const existing = creditCardEntries.find((e) => e.id === editingId)!;
-      payload.status = existing.status;
-      payload.paidDate = existing.paidDate;
+      const existing = creditCardEntries.find((e) => e.id === editingId);
+      if (existing) {
+        payload.status = existing.status;
+        payload.paidDate = existing.paidDate;
+      }
       dispatchCreditCard({ type: 'EDIT_CC_ENTRY', payload });
     } else {
       dispatchCreditCard({ type: 'ADD_CC_ENTRY', payload });

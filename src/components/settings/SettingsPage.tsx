@@ -23,6 +23,9 @@ export default function SettingsPage() {
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [editingCategory, setEditingCategory] = useState<CategoryConfig | null>(null);
 
+  // Google Sheets input
+  const [sheetIdInput, setSheetIdInput] = useState('');
+
   // Category form
   const [catName, setCatName] = useState('');
   const [catType, setCatType] = useState<'expense' | 'income'>('expense');
@@ -62,8 +65,7 @@ export default function SettingsPage() {
       ctx.dispatchBudgets({ type: 'SET_BUDGETS', payload: data.monthlyBudgets });
       if (data.monthlyPayslips) ctx.dispatchPayslips({ type: 'SET_PAYSLIPS', payload: data.monthlyPayslips });
       if (data.settings) dispatchSettings({ type: 'SET_SETTINGS', payload: data.settings });
-      // Funds need individual adds since there's no SET action
-      data.investmentFunds.forEach((f) => ctx.dispatchInvestmentFunds({ type: 'ADD_FUND', payload: f }));
+      ctx.dispatchInvestmentFunds({ type: 'SET_FUNDS', payload: data.investmentFunds });
       alert('Datos importados correctamente');
     } catch (err) {
       alert(`Error: ${err instanceof Error ? err.message : 'Error desconocido'}`);
@@ -381,9 +383,8 @@ export default function SettingsPage() {
                 <Input
                   label="ID de la hoja de Google Sheets"
                   placeholder="Ej: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms"
-                  value=""
-                  onChange={() => {}}
-                  id="sheet-id-input"
+                  value={sheetIdInput}
+                  onChange={(e) => setSheetIdInput(e.target.value)}
                 />
                 <p className="text-xs text-surface-400">
                   Copia el ID de la URL de tu Sheet: docs.google.com/spreadsheets/d/<strong>ID_AQUI</strong>/edit
@@ -391,13 +392,13 @@ export default function SettingsPage() {
                 <Button
                   size="sm"
                   onClick={() => {
-                    const input = document.getElementById('sheet-id-input') as HTMLInputElement;
-                    const id = input?.value?.trim();
+                    const id = sheetIdInput.trim();
                     if (!id) { alert('Introduce el ID de la hoja'); return; }
                     dispatchSettings({
                       type: 'UPDATE_SETTINGS',
                       payload: { googleSheetId: id },
                     });
+                    setSheetIdInput('');
                   }}
                 >
                   <Sheet size={14} /> Vincular hoja

@@ -164,7 +164,7 @@ function parseDate(raw: string): string | null {
   const dmy = s.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})/);
   if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
 
-  // MM/DD/YYYY (Revolut sometimes uses this)
+  // YYYY/MM/DD or YYYY.MM.DD (slash/dot separators)
   const mdy = s.match(/^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})/);
   if (mdy) return `${mdy[1]}-${mdy[2].padStart(2, '0')}-${mdy[3].padStart(2, '0')}`;
 

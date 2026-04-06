@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { TrendingUp, TrendingDown, PiggyBank, Percent, BarChart3, Plus, ArrowUpRight, ArrowDownRight, Minus } from 'lucide-react';
+import { TrendingUp, TrendingDown, PiggyBank, Percent, BarChart3, Plus, ArrowUpRight, ArrowDownRight, Minus, AlertTriangle } from 'lucide-react';
 import { nanoid } from 'nanoid';
 import {
   PieChart,
@@ -12,6 +12,9 @@ import {
   XAxis,
   YAxis,
   Legend,
+  AreaChart,
+  Area,
+  ReferenceLine,
 } from 'recharts';
 import { subMonths, parse, format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -28,7 +31,7 @@ import Select from '../ui/Select';
 import EmptyState from '../ui/EmptyState';
 
 export default function DashboardPage() {
-  const { transactions, guardShifts, monthlyPayslips, settings, dispatchTransactions } = useAppContext();
+  const { transactions, guardShifts, monthlyPayslips, monthlyBudgets, settings, dispatchTransactions } = useAppContext();
   const { selectedMonth } = useSelectedMonth();
 
   const monthTransactions = useMemo(
@@ -159,6 +162,56 @@ export default function DashboardPage() {
       .sort((a, b) => Math.abs(b.diffPct) - Math.abs(a.diffPct));
   }, [expensesByCategory, selectedMonth, transactions, settings.categories]);
 
+  // Savings projection: rolling 3-month avg income/expenses → 12 months forward
+  const savingsProjection = useMemo(() => {
+    const base = parse(selectedMonth + '-01', 'yyyy-MM-dd', new Date());
+    // Average over last 3 months
+    const lookback = [1, 2, 3].map((i) => format(subMonths(base, i), 'yyyy-MM'));
+    let totalInc = 0;
+    let totalExp = 0;
+    let validMonths = 0;
+    for (const mk of lookback) {
+      const txs = transactions.filter((t) => t.date.startsWith(mk));
+      const ps = monthlyPayslips.find((p) => p.month === mk);
+      const txInc = txs.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0);
+      const gs = guardShifts.filter((g) => g.date.startsWith(mk)).reduce((s, g) => s + g.grossAmount, 0);
+      const inc = ps ? txInc + (ps.actualNet ?? ps.estimatedNet) : txInc + gs;
+      const exp = txs.filter((t) => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+      if (inc > 0 || exp > 0) { totalInc += inc; totalExp += exp; validMonths++; }
+    }
+    if (validMonths === 0) return [];
+    const avgMonthlySavings = (totalInc - totalExp) / validMonths;
+    const data = [];
+    let cumulative = 0;
+    for (let i = 1; i <= 12; i++) {
+      const d = subMonths(base, -i);
+      cumulative += avgMonthlySavings;
+      data.push({
+        month: format(d, 'MMM yy', { locale: es }),
+        ahorro: Math.round(cumulative),
+        isNegative: cumulative < 0,
+      });
+    }
+    return data;
+  }, [selectedMonth, transactions, guardShifts, monthlyPayslips]);
+
+  // Budget alerts for this month
+  const budgetAlerts = useMemo(() => {
+    const currentBudget = monthlyBudgets.find((b) => b.month === selectedMonth);
+    if (!currentBudget) return [];
+    return currentBudget.categories
+      .map((bc) => {
+        const spent = monthTransactions
+          .filter((t) => t.type === 'expense' && t.category === bc.category)
+          .reduce((s, t) => s + t.amount, 0);
+        const pct = bc.monthlyLimit > 0 ? (spent / bc.monthlyLimit) * 100 : 0;
+        const cat = settings.categories.find((c) => c.id === bc.category);
+        return { name: cat?.name ?? bc.category, pct, spent, limit: bc.monthlyLimit };
+      })
+      .filter((a) => a.pct >= 80)
+      .sort((a, b) => b.pct - a.pct);
+  }, [monthlyBudgets, monthTransactions, selectedMonth, settings.categories]);
+
   // Quick expense modal
   const expenseCategories = useMemo(
     () => settings.categories.filter((c) => c.type === 'expense'),
@@ -233,6 +286,33 @@ export default function DashboardPage() {
           bgClass="bg-purple-50 dark:bg-purple-900/20"
         />
       </div>
+
+      {/* Budget alerts */}
+      {budgetAlerts.length > 0 && (
+        <div className="space-y-2">
+          {budgetAlerts.map((a) => {
+            const exceeded = a.pct > 100;
+            return (
+              <div
+                key={a.name}
+                className={`flex items-center gap-3 rounded-xl px-4 py-2.5 ${
+                  exceeded
+                    ? 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
+                    : 'bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800'
+                }`}
+              >
+                <AlertTriangle size={16} className={exceeded ? 'text-red-500 shrink-0' : 'text-amber-500 shrink-0'} />
+                <p className={`flex-1 text-sm ${exceeded ? 'text-red-700 dark:text-red-300' : 'text-amber-700 dark:text-amber-300'}`}>
+                  <strong>{a.name}</strong>
+                  {exceeded
+                    ? ` — presupuesto superado (${formatCurrency(a.spent)} / ${formatCurrency(a.limit)})`
+                    : ` — ${Math.round(a.pct)}% del presupuesto`}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -322,6 +402,47 @@ export default function DashboardPage() {
           </div>
         </Card>
       </div>
+
+      {/* Savings projection */}
+      {savingsProjection.length > 0 && (
+        <Card title="Proyeccion de ahorro (12 meses)">
+          <div className="h-48">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={savingsProjection}>
+                <defs>
+                  <linearGradient id="savingsGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25} />
+                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="month" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
+                <YAxis
+                  tick={{ fontSize: 10 }}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)}
+                />
+                <Tooltip
+                  formatter={(value) => formatCurrency(Number(value))}
+                  contentStyle={{ borderRadius: '0.5rem', fontSize: '0.75rem', border: '1px solid #e2e8f0' }}
+                />
+                <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="3 3" />
+                <Area
+                  type="monotone"
+                  dataKey="ahorro"
+                  name="Ahorro acumulado"
+                  stroke="#6366f1"
+                  fill="url(#savingsGrad)"
+                  strokeWidth={2}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+          <p className="text-xs text-surface-400 dark:text-surface-500 mt-1 text-right">
+            Basado en media de los ultimos 3 meses
+          </p>
+        </Card>
+      )}
 
       {/* Monthly comparison */}
       {categoryComparisons.length > 0 && (
