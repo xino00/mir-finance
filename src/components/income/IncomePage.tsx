@@ -1,5 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { nanoid } from 'nanoid';
+import { subMonths, parse, format } from 'date-fns';
+import { es } from 'date-fns/locale';
 import {
   Banknote,
   Clock,
@@ -8,6 +10,8 @@ import {
   Trash2,
   Stethoscope,
   TrendingUp,
+  FileText,
+  Check,
 } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { useSelectedMonth } from '../../hooks/useSelectedMonth';
@@ -17,6 +21,7 @@ import {
   currentDate,
   calculateGuardGross,
   detectDayType,
+  estimatePayslipNet,
 } from '../../utils';
 import type {
   GuardShift,
@@ -74,6 +79,8 @@ export default function IncomePage() {
     dispatchGuardShifts,
     transactions,
     dispatchTransactions,
+    monthlyPayslips,
+    dispatchPayslips,
     settings,
   } = useAppContext();
   const { selectedMonth } = useSelectedMonth();
@@ -131,6 +138,91 @@ export default function IncomePage() {
     () => settings.categories.filter((c) => c.type === 'income'),
     [settings.categories],
   );
+
+  /* ---------- Payslip / net salary computation ---------- */
+  // Guards are paid month+1: April payslip includes March guards
+  const previousMonthKey = useMemo(() => {
+    const base = parse(selectedMonth + '-01', 'yyyy-MM-dd', new Date());
+    return format(subMonths(base, 1), 'yyyy-MM');
+  }, [selectedMonth]);
+
+  const previousMonthLabel = useMemo(() => {
+    const base = parse(previousMonthKey + '-01', 'yyyy-MM-dd', new Date());
+    return format(base, 'MMMM yyyy', { locale: es });
+  }, [previousMonthKey]);
+
+  const previousMonthGuardsGross = useMemo(
+    () =>
+      guardShifts
+        .filter((s) => s.date.startsWith(previousMonthKey))
+        .reduce((sum, s) => sum + s.grossAmount, 0),
+    [guardShifts, previousMonthKey],
+  );
+
+  const grossSalary = salaryEntry?.totalMonthly ?? 0;
+  const estimatedNet = useMemo(
+    () => estimatePayslipNet(grossSalary, previousMonthGuardsGross),
+    [grossSalary, previousMonthGuardsGross],
+  );
+
+  // Existing payslip record for this month (if any)
+  const existingPayslip = useMemo(
+    () => monthlyPayslips.find((p) => p.month === selectedMonth),
+    [monthlyPayslips, selectedMonth],
+  );
+
+  const [editingActualNet, setEditingActualNet] = useState(false);
+  const [actualNetInput, setActualNetInput] = useState('');
+
+  // Reset editing state when month changes
+  useEffect(() => {
+    setEditingActualNet(false);
+  }, [selectedMonth]);
+
+  function handleSaveActualNet() {
+    const value = parseFloat(actualNetInput);
+    if (!value || value <= 0) return;
+    dispatchPayslips({
+      type: 'SET_PAYSLIP',
+      payload: {
+        month: selectedMonth,
+        grossSalary,
+        grossGuards: previousMonthGuardsGross,
+        estimatedNet,
+        actualNet: value,
+      },
+    });
+    setEditingActualNet(false);
+  }
+
+  function handleClearActualNet() {
+    dispatchPayslips({
+      type: 'SET_PAYSLIP',
+      payload: {
+        month: selectedMonth,
+        grossSalary,
+        grossGuards: previousMonthGuardsGross,
+        estimatedNet,
+        actualNet: undefined,
+      },
+    });
+  }
+
+  // Auto-save estimated payslip data when month/values change
+  useEffect(() => {
+    if (grossSalary > 0) {
+      dispatchPayslips({
+        type: 'SET_PAYSLIP',
+        payload: {
+          month: selectedMonth,
+          grossSalary,
+          grossGuards: previousMonthGuardsGross,
+          estimatedNet,
+          actualNet: existingPayslip?.actualNet,
+        },
+      });
+    }
+  }, [selectedMonth, grossSalary, previousMonthGuardsGross, estimatedNet]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ---------- calculated guard gross (live preview) ---------- */
   const liveGross = useMemo(
@@ -290,29 +382,141 @@ export default function IncomePage() {
       {/* ============================================================== */}
       {activeTab === 'nomina' && (
         <>
-          {/* Salary card */}
+          {/* Net salary card */}
           {salaryEntry && (
-            <Card title={`Salario ${settings.currentResidencyYear}`}>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-xs text-surface-500 dark:text-surface-400">Bruto mensual</p>
-                  <p className="text-lg font-bold text-surface-800 dark:text-surface-100">
-                    {formatCurrency(salaryEntry.totalMonthly)}
-                  </p>
-                  <p className="text-xs text-surface-400 dark:text-surface-500 mt-0.5">
-                    Base {formatCurrency(salaryEntry.baseSalary)} + Complemento{' '}
-                    {formatCurrency(salaryEntry.gradeComplement)}
-                  </p>
+            <Card
+              title={`Nomina estimada — ${settings.currentResidencyYear}`}
+              action={
+                <div className="flex items-center gap-1 text-xs text-surface-400 dark:text-surface-500">
+                  <FileText size={12} />
+                  BOCAM 2026
                 </div>
-                <div>
-                  <p className="text-xs text-surface-500 dark:text-surface-400">Bruto anual</p>
-                  <p className="text-lg font-bold text-surface-800 dark:text-surface-100">
-                    {formatCurrency(salaryEntry.totalMonthly * salaryEntry.paymentsPerYear)}
-                  </p>
-                  <p className="text-xs text-surface-400 dark:text-surface-500 mt-0.5">
-                    {salaryEntry.paymentsPerYear} pagas/ano (BOCAM 2026)
-                  </p>
+              }
+            >
+              <div className="space-y-4">
+                {/* Gross breakdown */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-surface-500 dark:text-surface-400">Bruto salario</p>
+                    <p className="text-lg font-bold text-surface-800 dark:text-surface-100">
+                      {formatCurrency(grossSalary)}
+                    </p>
+                    <p className="text-xs text-surface-400 dark:text-surface-500 mt-0.5">
+                      Base {formatCurrency(salaryEntry.baseSalary)} + Compl.{' '}
+                      {formatCurrency(salaryEntry.gradeComplement)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-surface-500 dark:text-surface-400">Bruto guardias</p>
+                    <p className="text-lg font-bold text-surface-800 dark:text-surface-100">
+                      {formatCurrency(previousMonthGuardsGross)}
+                    </p>
+                    <p className="text-xs text-surface-400 dark:text-surface-500 mt-0.5">
+                      Cobradas de {previousMonthLabel}
+                    </p>
+                  </div>
                 </div>
+
+                {/* Divider */}
+                <div className="border-t border-surface-100 dark:border-surface-800" />
+
+                {/* Net section */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-surface-500 dark:text-surface-400">Neto estimado</p>
+                    <p className="text-lg font-bold text-blue-600 dark:text-blue-400">
+                      {formatCurrency(estimatedNet)}
+                    </p>
+                    <p className="text-xs text-surface-400 dark:text-surface-500 mt-0.5">
+                      IRPF + SS aprox.
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-surface-500 dark:text-surface-400">
+                      Neto real (nomina)
+                    </p>
+                    {existingPayslip?.actualNet && !editingActualNet ? (
+                      <div>
+                        <p className="text-lg font-bold text-green-600 dark:text-green-400">
+                          {formatCurrency(existingPayslip.actualNet)}
+                        </p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <button
+                            onClick={() => {
+                              setActualNetInput(String(existingPayslip.actualNet));
+                              setEditingActualNet(true);
+                            }}
+                            className="text-xs text-primary-600 dark:text-primary-400 hover:underline"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            onClick={handleClearActualNet}
+                            className="text-xs text-surface-400 hover:text-red-500"
+                          >
+                            Borrar
+                          </button>
+                        </div>
+                      </div>
+                    ) : editingActualNet ? (
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={actualNetInput}
+                          onChange={(e) => setActualNetInput(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleSaveActualNet()}
+                          className="w-28 rounded-md border border-surface-300 dark:border-surface-600 bg-white dark:bg-surface-800 px-2 py-1 text-sm font-semibold text-surface-800 dark:text-surface-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                          placeholder="0.00"
+                          autoFocus
+                        />
+                        <button
+                          onClick={handleSaveActualNet}
+                          className="p-1 rounded-md bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50"
+                        >
+                          <Check size={14} />
+                        </button>
+                        <button
+                          onClick={() => setEditingActualNet(false)}
+                          className="text-xs text-surface-400 hover:text-surface-600"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    ) : (
+                      <div>
+                        <p className="text-lg font-bold text-surface-300 dark:text-surface-600">—</p>
+                        <button
+                          onClick={() => {
+                            setActualNetInput('');
+                            setEditingActualNet(true);
+                          }}
+                          className="text-xs text-primary-600 dark:text-primary-400 hover:underline mt-0.5"
+                        >
+                          Introducir neto real
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Difference indicator when actual net exists */}
+                {existingPayslip?.actualNet && !editingActualNet && (
+                  <div className="rounded-lg bg-surface-50 dark:bg-surface-800/50 p-2.5 text-xs text-surface-600 dark:text-surface-400">
+                    Diferencia con estimacion:{' '}
+                    <span
+                      className={
+                        existingPayslip.actualNet >= estimatedNet
+                          ? 'font-semibold text-green-600 dark:text-green-400'
+                          : 'font-semibold text-red-600 dark:text-red-400'
+                      }
+                    >
+                      {existingPayslip.actualNet >= estimatedNet ? '+' : ''}
+                      {formatCurrency(existingPayslip.actualNet - estimatedNet)}
+                    </span>
+                  </div>
+                )}
               </div>
             </Card>
           )}

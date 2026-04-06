@@ -33,6 +33,7 @@ export default function SettingsPage() {
       investmentEntries: ctx.investmentEntries,
       creditCardEntries: ctx.creditCardEntries,
       monthlyBudgets: ctx.monthlyBudgets,
+      monthlyPayslips: ctx.monthlyPayslips,
       settings: ctx.settings,
       version: 1,
     };
@@ -55,6 +56,7 @@ export default function SettingsPage() {
       ctx.dispatchInvestmentEntries({ type: 'SET_ENTRIES', payload: data.investmentEntries });
       ctx.dispatchCreditCard({ type: 'SET_CC_ENTRIES', payload: data.creditCardEntries });
       ctx.dispatchBudgets({ type: 'SET_BUDGETS', payload: data.monthlyBudgets });
+      if (data.monthlyPayslips) ctx.dispatchPayslips({ type: 'SET_PAYSLIPS', payload: data.monthlyPayslips });
       if (data.settings) dispatchSettings({ type: 'SET_SETTINGS', payload: data.settings });
       // Funds need individual adds since there's no SET action
       data.investmentFunds.forEach((f) => ctx.dispatchInvestmentFunds({ type: 'ADD_FUND', payload: f }));

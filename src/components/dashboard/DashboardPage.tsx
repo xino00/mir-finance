@@ -22,7 +22,7 @@ import Card from '../ui/Card';
 import EmptyState from '../ui/EmptyState';
 
 export default function DashboardPage() {
-  const { transactions, guardShifts, settings } = useAppContext();
+  const { transactions, guardShifts, monthlyPayslips, settings } = useAppContext();
   const { selectedMonth } = useSelectedMonth();
 
   const monthTransactions = useMemo(
@@ -35,13 +35,27 @@ export default function DashboardPage() {
     [guardShifts, selectedMonth],
   );
 
+  // Use actual net from payslip if available, otherwise estimated, otherwise fall back to gross
+  const payslip = useMemo(
+    () => monthlyPayslips.find((p) => p.month === selectedMonth),
+    [monthlyPayslips, selectedMonth],
+  );
+
   const income = useMemo(() => {
     const txIncome = monthTransactions
       .filter((t) => t.type === 'income')
       .reduce((sum, t) => sum + t.amount, 0);
+
+    // If payslip exists, use net (actual or estimated) instead of gross
+    if (payslip) {
+      const netPayslip = payslip.actualNet ?? payslip.estimatedNet;
+      return txIncome + netPayslip;
+    }
+
+    // Fallback: gross salary + gross guards (for months without payslip data)
     const guardIncome = monthGuardShifts.reduce((sum, g) => sum + g.grossAmount, 0);
     return txIncome + guardIncome;
-  }, [monthTransactions, monthGuardShifts]);
+  }, [monthTransactions, monthGuardShifts, payslip]);
 
   const expenses = useMemo(
     () =>
@@ -89,15 +103,17 @@ export default function DashboardPage() {
     return months.map(({ month, key }) => {
       const txMonth = transactions.filter((t) => t.date.startsWith(key));
       const gsMonth = guardShifts.filter((g) => g.date.startsWith(key));
+      const ps = monthlyPayslips.find((p) => p.month === key);
 
-      const inc =
-        txMonth.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0) +
-        gsMonth.reduce((s, g) => s + g.grossAmount, 0);
+      const txInc = txMonth.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0);
+      const inc = ps
+        ? txInc + (ps.actualNet ?? ps.estimatedNet)
+        : txInc + gsMonth.reduce((s, g) => s + g.grossAmount, 0);
       const exp = txMonth.filter((t) => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
 
       return { month, Ingresos: inc, Gastos: exp };
     });
-  }, [selectedMonth, transactions, guardShifts]);
+  }, [selectedMonth, transactions, guardShifts, monthlyPayslips]);
 
   const hasData = monthTransactions.length > 0 || monthGuardShifts.length > 0;
 

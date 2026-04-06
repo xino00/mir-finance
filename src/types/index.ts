@@ -1,11 +1,11 @@
-export type { Transaction, TransactionType } from './transaction';
+export type { Transaction, TransactionType, RecurringExpense, MonthlyPayslip } from './transaction';
 export type { GuardShift, GuardRateEntry, ResidencyYear, ShiftDuration, DayType, ShiftModality } from './guard-shift';
 export type { InvestmentFund, InvestmentEntry, PortfolioTarget } from './investment';
 export type { CreditCardEntry, PaymentStatus } from './credit-card';
 export type { BudgetCategory, MonthlyBudget, EmergencyFundConfig } from './budget';
 export type { SalaryTable, CategoryConfig, AppSettings } from './settings';
 
-import type { Transaction } from './transaction';
+import type { Transaction, MonthlyPayslip } from './transaction';
 import type { GuardShift } from './guard-shift';
 import type { InvestmentFund, InvestmentEntry } from './investment';
 import type { CreditCardEntry } from './credit-card';
@@ -19,6 +19,7 @@ export interface AppState {
   investmentEntries: InvestmentEntry[];
   creditCardEntries: CreditCardEntry[];
   monthlyBudgets: MonthlyBudget[];
+  monthlyPayslips: MonthlyPayslip[];
   settings: AppSettings;
   version: number;
 }

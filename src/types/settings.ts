@@ -1,4 +1,4 @@
-import type { TransactionType } from './transaction';
+import type { TransactionType, RecurringExpense } from './transaction';
 import type { ResidencyYear, GuardRateEntry } from './guard-shift';
 import type { PortfolioTarget } from './investment';
 import type { EmergencyFundConfig } from './budget';
@@ -29,6 +29,7 @@ export interface AppSettings {
   categories: CategoryConfig[];
   investmentTargets: PortfolioTarget[];
   emergencyFund: EmergencyFundConfig;
+  recurringExpenses: RecurringExpense[];
   theme: 'light' | 'dark' | 'system';
   lastExportDate?: string;
 }

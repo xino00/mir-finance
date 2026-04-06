@@ -1,11 +1,11 @@
-import { useMemo, useState } from 'react';
-import { Plus, Receipt, Pencil, Trash2 } from 'lucide-react';
+import { useMemo, useState, useEffect } from 'react';
+import { Plus, Receipt, Pencil, Trash2, RepeatIcon, Lock } from 'lucide-react';
 import { nanoid } from 'nanoid';
 
 import { useAppContext } from '../../context/AppContext';
 import { useSelectedMonth } from '../../hooks/useSelectedMonth';
 import { formatCurrency, formatDate, currentDate } from '../../utils';
-import type { Transaction } from '../../types';
+import type { Transaction, RecurringExpense } from '../../types';
 
 import Card from '../ui/Card';
 import Button from '../ui/Button';
@@ -13,10 +13,7 @@ import Modal from '../ui/Modal';
 import Input from '../ui/Input';
 import Select from '../ui/Select';
 import EmptyState from '../ui/EmptyState';
-
-/* ============================================================
-   Form state
-   ============================================================ */
+import Badge from '../ui/Badge';
 
 interface ExpenseForm {
   amount: string;
@@ -38,12 +35,24 @@ const emptyForm = (defaultCategory: string): ExpenseForm => ({
   recurringDay: '',
 });
 
-/* ============================================================
-   Component
-   ============================================================ */
+interface RecurringForm {
+  amount: string;
+  category: string;
+  subcategory: string;
+  description: string;
+  dayOfMonth: string;
+}
+
+const emptyRecurringForm = (defaultCategory: string): RecurringForm => ({
+  amount: '',
+  category: defaultCategory,
+  subcategory: '',
+  description: '',
+  dayOfMonth: '1',
+});
 
 export default function ExpensesPage() {
-  const { transactions, dispatchTransactions, settings } = useAppContext();
+  const { transactions, dispatchTransactions, settings, dispatchSettings } = useAppContext();
   const { selectedMonth } = useSelectedMonth();
 
   const expenseCategories = useMemo(
@@ -52,6 +61,36 @@ export default function ExpensesPage() {
   );
 
   const defaultCatId = expenseCategories[0]?.id ?? '';
+  const recurringExpenses = settings.recurringExpenses ?? [];
+
+  // --- Auto-generate recurring expenses for selectedMonth ---
+  useEffect(() => {
+    if (recurringExpenses.length === 0) return;
+
+    const existingRecurringIds = transactions
+      .filter((t) => t.date.startsWith(selectedMonth) && t.fromRecurringId)
+      .map((t) => t.fromRecurringId);
+
+    recurringExpenses.forEach((re) => {
+      if (existingRecurringIds.includes(re.id)) return;
+
+      const day = String(re.dayOfMonth).padStart(2, '0');
+      const tx: Transaction = {
+        id: nanoid(),
+        date: `${selectedMonth}-${day}`,
+        amount: re.amount,
+        type: 'expense',
+        category: re.category,
+        subcategory: re.subcategory,
+        description: re.description,
+        isRecurring: true,
+        recurringDay: re.dayOfMonth,
+        fromRecurringId: re.id,
+        createdAt: new Date().toISOString(),
+      };
+      dispatchTransactions({ type: 'ADD_TRANSACTION', payload: tx });
+    });
+  }, [selectedMonth, recurringExpenses, transactions, dispatchTransactions]);
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -59,7 +98,12 @@ export default function ExpensesPage() {
   const [form, setForm] = useState<ExpenseForm>(emptyForm(defaultCatId));
   const [formError, setFormError] = useState('');
 
-  // Filtered and sorted expenses
+  // Recurring modal state
+  const [recurringModalOpen, setRecurringModalOpen] = useState(false);
+  const [editingRecurringId, setEditingRecurringId] = useState<string | null>(null);
+  const [recurringForm, setRecurringForm] = useState<RecurringForm>(emptyRecurringForm(defaultCatId));
+
+  // Filtered expenses
   const monthExpenses = useMemo(
     () =>
       transactions
@@ -68,15 +112,12 @@ export default function ExpensesPage() {
     [transactions, selectedMonth],
   );
 
-  const totalExpenses = useMemo(
-    () => monthExpenses.reduce((s, t) => s + t.amount, 0),
-    [monthExpenses],
-  );
-
-  const avgExpense = monthExpenses.length > 0 ? totalExpenses / monthExpenses.length : 0;
+  const fixedExpenses = monthExpenses.filter((t) => t.fromRecurringId);
+  const totalExpenses = monthExpenses.reduce((s, t) => s + t.amount, 0);
+  const totalFixed = fixedExpenses.reduce((s, t) => s + t.amount, 0);
+  const totalVariable = totalExpenses - totalFixed;
 
   /* ---- helpers ---- */
-
   const selectedCat = useMemo(
     () => expenseCategories.find((c) => c.id === form.category),
     [expenseCategories, form.category],
@@ -84,16 +125,23 @@ export default function ExpensesPage() {
 
   const subcategoryOptions = useMemo(() => {
     const subs = selectedCat?.subcategories ?? [];
-    return [
-      { value: '', label: 'Sin subcategoria' },
-      ...subs.map((s) => ({ value: s, label: s })),
-    ];
+    return [{ value: '', label: 'Sin subcategoria' }, ...subs.map((s) => ({ value: s, label: s }))];
   }, [selectedCat]);
 
   const categoryOptions = useMemo(
     () => expenseCategories.map((c) => ({ value: c.id, label: c.name })),
     [expenseCategories],
   );
+
+  const selectedRecCat = useMemo(
+    () => expenseCategories.find((c) => c.id === recurringForm.category),
+    [expenseCategories, recurringForm.category],
+  );
+
+  const recSubcategoryOptions = useMemo(() => {
+    const subs = selectedRecCat?.subcategories ?? [];
+    return [{ value: '', label: 'Sin subcategoria' }, ...subs.map((s) => ({ value: s, label: s }))];
+  }, [selectedRecCat]);
 
   function getCategoryName(catId: string): string {
     return settings.categories.find((c) => c.id === catId)?.name ?? catId;
@@ -103,8 +151,7 @@ export default function ExpensesPage() {
     return settings.categories.find((c) => c.id === catId)?.color ?? '#94a3b8';
   }
 
-  /* ---- modal open/close ---- */
-
+  /* ---- expense modal ---- */
   function openNew() {
     setEditingId(null);
     setForm(emptyForm(defaultCatId));
@@ -127,24 +174,10 @@ export default function ExpensesPage() {
     setModalOpen(true);
   }
 
-  function closeModal() {
-    setModalOpen(false);
-    setEditingId(null);
-  }
-
-  /* ---- submit ---- */
-
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const amount = parseFloat(form.amount);
-    if (!amount || amount <= 0) {
-      setFormError('Introduce un importe valido');
-      return;
-    }
-    if (!form.date) {
-      setFormError('Selecciona una fecha');
-      return;
-    }
+    if (!amount || amount <= 0) { setFormError('Introduce un importe valido'); return; }
 
     const transaction: Transaction = {
       id: editingId ?? nanoid(),
@@ -161,73 +194,136 @@ export default function ExpensesPage() {
         : new Date().toISOString(),
     };
 
-    if (editingId) {
-      dispatchTransactions({ type: 'EDIT_TRANSACTION', payload: transaction });
-    } else {
-      dispatchTransactions({ type: 'ADD_TRANSACTION', payload: transaction });
-    }
-    closeModal();
+    dispatchTransactions({ type: editingId ? 'EDIT_TRANSACTION' : 'ADD_TRANSACTION', payload: transaction });
+    setModalOpen(false);
+    setEditingId(null);
   }
 
-  /* ---- delete ---- */
-
   function handleDelete(id: string) {
-    if (window.confirm('¿Seguro que quieres eliminar este gasto?')) {
+    if (window.confirm('¿Eliminar este gasto?')) {
       dispatchTransactions({ type: 'DELETE_TRANSACTION', payload: id });
     }
   }
 
-  /* ---- form updater ---- */
-
   function updateField<K extends keyof ExpenseForm>(key: K, value: ExpenseForm[K]) {
     setForm((prev) => {
       const next = { ...prev, [key]: value };
-      // Reset subcategory when category changes
-      if (key === 'category') {
-        next.subcategory = '';
-      }
+      if (key === 'category') next.subcategory = '';
       return next;
     });
   }
 
-  /* ============================================================
-     Render
-     ============================================================ */
+  /* ---- recurring expense modal ---- */
+  function openNewRecurring() {
+    setEditingRecurringId(null);
+    setRecurringForm(emptyRecurringForm(defaultCatId));
+    setRecurringModalOpen(true);
+  }
 
+  function openEditRecurring(re: RecurringExpense) {
+    setEditingRecurringId(re.id);
+    setRecurringForm({
+      amount: String(re.amount),
+      category: re.category,
+      subcategory: re.subcategory ?? '',
+      description: re.description,
+      dayOfMonth: String(re.dayOfMonth),
+    });
+    setRecurringModalOpen(true);
+  }
+
+  function saveRecurring(e: React.FormEvent) {
+    e.preventDefault();
+    const amount = parseFloat(recurringForm.amount);
+    if (!amount || amount <= 0) return;
+
+    const entry: RecurringExpense = {
+      id: editingRecurringId ?? nanoid(8),
+      amount,
+      category: recurringForm.category,
+      subcategory: recurringForm.subcategory || undefined,
+      description: recurringForm.description,
+      dayOfMonth: parseInt(recurringForm.dayOfMonth, 10) || 1,
+    };
+
+    const updated = editingRecurringId
+      ? recurringExpenses.map((r) => (r.id === editingRecurringId ? entry : r))
+      : [...recurringExpenses, entry];
+
+    dispatchSettings({ type: 'UPDATE_SETTINGS', payload: { recurringExpenses: updated } });
+    setRecurringModalOpen(false);
+    setEditingRecurringId(null);
+  }
+
+  function deleteRecurring(id: string) {
+    if (!window.confirm('¿Eliminar este gasto fijo?')) return;
+    dispatchSettings({
+      type: 'UPDATE_SETTINGS',
+      payload: { recurringExpenses: recurringExpenses.filter((r) => r.id !== id) },
+    });
+  }
+
+  /* ---- render ---- */
   return (
-    <div className="space-y-6">
-      {/* Header */}
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-bold text-surface-800 dark:text-surface-100">Gastos</h1>
-        <Button onClick={openNew} size="sm">
-          <Plus size={16} />
-          Nuevo gasto
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={openNewRecurring} variant="secondary" size="sm">
+            <Lock size={14} /> Gastos fijos
+          </Button>
+          <Button onClick={openNew} size="sm">
+            <Plus size={16} /> Nuevo gasto
+          </Button>
+        </div>
       </div>
 
-      {/* Summary card */}
+      {/* Summary */}
       <Card>
         <div className="grid grid-cols-3 gap-4 text-center">
           <div>
             <p className="text-xs text-surface-500 dark:text-surface-400">Total del mes</p>
-            <p className="text-base font-bold text-red-600 dark:text-red-400 mt-0.5">
-              {formatCurrency(totalExpenses)}
-            </p>
+            <p className="text-base font-bold text-red-600 dark:text-red-400 mt-0.5">{formatCurrency(totalExpenses)}</p>
           </div>
           <div>
-            <p className="text-xs text-surface-500 dark:text-surface-400">Transacciones</p>
-            <p className="text-base font-bold text-surface-800 dark:text-surface-200 mt-0.5">
-              {monthExpenses.length}
-            </p>
+            <p className="text-xs text-surface-500 dark:text-surface-400">Fijos</p>
+            <p className="text-base font-bold text-surface-800 dark:text-surface-200 mt-0.5">{formatCurrency(totalFixed)}</p>
           </div>
           <div>
-            <p className="text-xs text-surface-500 dark:text-surface-400">Gasto medio</p>
-            <p className="text-base font-bold text-surface-800 dark:text-surface-200 mt-0.5">
-              {formatCurrency(avgExpense)}
-            </p>
+            <p className="text-xs text-surface-500 dark:text-surface-400">Variables</p>
+            <p className="text-base font-bold text-surface-800 dark:text-surface-200 mt-0.5">{formatCurrency(totalVariable)}</p>
           </div>
         </div>
       </Card>
+
+      {/* Recurring expenses card */}
+      {recurringExpenses.length > 0 && (
+        <Card
+          title="Gastos fijos mensuales"
+          action={<Button variant="ghost" size="sm" onClick={openNewRecurring}><Plus size={14} /></Button>}
+        >
+          <ul className="divide-y divide-surface-100 dark:divide-surface-800">
+            {recurringExpenses.map((re) => (
+              <li key={re.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0 group">
+                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: getCategoryColor(re.category) }} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-surface-800 dark:text-surface-200 truncate">{re.description}</p>
+                  <p className="text-xs text-surface-400">{getCategoryName(re.category)} &middot; dia {re.dayOfMonth}</p>
+                </div>
+                <span className="text-sm font-semibold text-surface-600 dark:text-surface-300">{formatCurrency(re.amount)}</span>
+                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button onClick={() => openEditRecurring(re)} className="p-1 text-surface-400 hover:text-primary-500"><Pencil size={13} /></button>
+                  <button onClick={() => deleteRecurring(re.id)} className="p-1 text-surface-400 hover:text-red-500"><Trash2 size={13} /></button>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-3 pt-2 border-t border-surface-100 dark:border-surface-800 flex justify-between text-sm">
+            <span className="text-surface-500">Total fijos</span>
+            <span className="font-semibold text-surface-700 dark:text-surface-300">{formatCurrency(recurringExpenses.reduce((s, r) => s + r.amount, 0))}/mes</span>
+          </div>
+        </Card>
+      )}
 
       {/* Expense list */}
       {monthExpenses.length === 0 ? (
@@ -235,55 +331,29 @@ export default function ExpensesPage() {
           icon={<Receipt size={48} />}
           title="Sin gastos este mes"
           description="Registra tu primer gasto para empezar a controlar tus finanzas."
-          action={
-            <Button onClick={openNew} size="sm">
-              <Plus size={16} />
-              Nuevo gasto
-            </Button>
-          }
+          action={<Button onClick={openNew} size="sm"><Plus size={16} /> Nuevo gasto</Button>}
         />
       ) : (
-        <Card>
+        <Card title="Gastos del mes">
           <ul className="divide-y divide-surface-100 dark:divide-surface-800">
             {monthExpenses.map((tx) => (
               <li key={tx.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
-                {/* Colored dot */}
-                <span
-                  className="w-2.5 h-2.5 rounded-full shrink-0"
-                  style={{ backgroundColor: getCategoryColor(tx.category) }}
-                />
-
-                {/* Info */}
+                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: getCategoryColor(tx.category) }} />
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-surface-800 dark:text-surface-200 truncate">
-                    {tx.description || getCategoryName(tx.category)}
-                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-sm font-medium text-surface-800 dark:text-surface-200 truncate">
+                      {tx.description || getCategoryName(tx.category)}
+                    </p>
+                    {tx.fromRecurringId && <Badge variant="neutral"><RepeatIcon size={10} /> Fijo</Badge>}
+                  </div>
                   <p className="text-xs text-surface-500 dark:text-surface-400">
                     {formatDate(tx.date)} &middot; {getCategoryName(tx.category)}
                   </p>
                 </div>
-
-                {/* Amount */}
-                <span className="text-sm font-semibold text-red-600 dark:text-red-400 whitespace-nowrap">
-                  -{formatCurrency(tx.amount)}
-                </span>
-
-                {/* Actions */}
+                <span className="text-sm font-semibold text-red-600 dark:text-red-400 whitespace-nowrap">-{formatCurrency(tx.amount)}</span>
                 <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    onClick={() => openEdit(tx)}
-                    className="p-1.5 rounded-lg hover:bg-surface-100 dark:hover:bg-surface-800 text-surface-400 hover:text-surface-600 dark:hover:text-surface-300"
-                    title="Editar"
-                  >
-                    <Pencil size={14} />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(tx.id)}
-                    className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-surface-400 hover:text-red-600 dark:hover:text-red-400"
-                    title="Eliminar"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  <button onClick={() => openEdit(tx)} className="p-1.5 rounded-lg hover:bg-surface-100 dark:hover:bg-surface-800 text-surface-400"><Pencil size={14} /></button>
+                  <button onClick={() => handleDelete(tx.id)} className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-surface-400 hover:text-red-600"><Trash2 size={14} /></button>
                 </div>
               </li>
             ))}
@@ -291,97 +361,36 @@ export default function ExpensesPage() {
         </Card>
       )}
 
-      {/* Add / Edit Modal */}
-      <Modal
-        open={modalOpen}
-        onClose={closeModal}
-        title={editingId ? 'Editar gasto' : 'Nuevo gasto'}
-      >
+      {/* Expense Modal */}
+      <Modal open={modalOpen} onClose={() => { setModalOpen(false); setEditingId(null); }} title={editingId ? 'Editar gasto' : 'Nuevo gasto'}>
         <form onSubmit={handleSubmit} className="space-y-4">
-          {formError && (
-            <p className="text-xs text-red-500 bg-red-50 dark:bg-red-900/20 px-3 py-2 rounded-lg">
-              {formError}
-            </p>
-          )}
-
-          <Input
-            label="Importe"
-            type="number"
-            step="0.01"
-            min="0"
-            placeholder="0,00"
-            value={form.amount}
-            onChange={(e) => updateField('amount', e.target.value)}
-            required
-          />
-
-          <Select
-            label="Categoria"
-            options={categoryOptions}
-            value={form.category}
-            onChange={(e) => updateField('category', e.target.value)}
-          />
-
-          {subcategoryOptions.length > 1 && (
-            <Select
-              label="Subcategoria"
-              options={subcategoryOptions}
-              value={form.subcategory}
-              onChange={(e) => updateField('subcategory', e.target.value)}
-            />
-          )}
-
-          <Input
-            label="Fecha"
-            type="date"
-            value={form.date}
-            onChange={(e) => updateField('date', e.target.value)}
-            required
-          />
-
-          <Input
-            label="Descripcion"
-            type="text"
-            placeholder="Descripcion del gasto"
-            value={form.description}
-            onChange={(e) => updateField('description', e.target.value)}
-          />
-
-          {/* Recurring */}
-          <div className="space-y-2">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={form.isRecurring}
-                onChange={(e) => updateField('isRecurring', e.target.checked)}
-                className="rounded border-surface-300 dark:border-surface-600 text-primary-600 focus:ring-primary-500"
-              />
-              <span className="text-xs font-medium text-surface-600 dark:text-surface-400">
-                Gasto recurrente
-              </span>
-            </label>
-
-            {form.isRecurring && (
-              <Input
-                label="Dia del mes"
-                type="number"
-                min="1"
-                max="31"
-                placeholder="15"
-                value={form.recurringDay}
-                onChange={(e) => updateField('recurringDay', e.target.value)}
-              />
-            )}
-          </div>
-
-          {/* Actions */}
+          {formError && <p className="text-xs text-red-500 bg-red-50 dark:bg-red-900/20 px-3 py-2 rounded-lg">{formError}</p>}
+          <Input label="Importe" type="number" step="0.01" min="0" placeholder="0,00" value={form.amount} onChange={(e) => updateField('amount', e.target.value)} required />
+          <Select label="Categoria" options={categoryOptions} value={form.category} onChange={(e) => updateField('category', e.target.value)} />
+          {subcategoryOptions.length > 1 && <Select label="Subcategoria" options={subcategoryOptions} value={form.subcategory} onChange={(e) => updateField('subcategory', e.target.value)} />}
+          <Input label="Fecha" type="date" value={form.date} onChange={(e) => updateField('date', e.target.value)} required />
+          <Input label="Descripcion" type="text" placeholder="Descripcion del gasto" value={form.description} onChange={(e) => updateField('description', e.target.value)} />
           <div className="flex gap-3 pt-2">
-            <Button type="button" variant="secondary" size="md" className="flex-1" onClick={closeModal}>
-              Cancelar
-            </Button>
-            <Button type="submit" variant="primary" size="md" className="flex-1">
-              {editingId ? 'Guardar' : 'Agregar'}
-            </Button>
+            <Button type="button" variant="secondary" className="flex-1" onClick={() => { setModalOpen(false); setEditingId(null); }}>Cancelar</Button>
+            <Button type="submit" className="flex-1">{editingId ? 'Guardar' : 'Agregar'}</Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Recurring Expense Modal */}
+      <Modal open={recurringModalOpen} onClose={() => { setRecurringModalOpen(false); setEditingRecurringId(null); }} title={editingRecurringId ? 'Editar gasto fijo' : 'Nuevo gasto fijo'}>
+        <form onSubmit={saveRecurring} className="space-y-4">
+          <p className="text-xs text-surface-500 bg-surface-50 dark:bg-surface-800 px-3 py-2 rounded-lg">
+            Los gastos fijos se generan automaticamente cada mes.
+          </p>
+          <Input label="Importe mensual" type="number" step="0.01" min="0" value={recurringForm.amount} onChange={(e) => setRecurringForm((p) => ({ ...p, amount: e.target.value }))} required />
+          <Select label="Categoria" options={categoryOptions} value={recurringForm.category} onChange={(e) => setRecurringForm((p) => ({ ...p, category: e.target.value, subcategory: '' }))} />
+          {recSubcategoryOptions.length > 1 && <Select label="Subcategoria" options={recSubcategoryOptions} value={recurringForm.subcategory} onChange={(e) => setRecurringForm((p) => ({ ...p, subcategory: e.target.value }))} />}
+          <Input label="Descripcion" type="text" placeholder="Ej: Alquiler" value={recurringForm.description} onChange={(e) => setRecurringForm((p) => ({ ...p, description: e.target.value }))} required />
+          <Input label="Dia del mes" type="number" min="1" max="31" value={recurringForm.dayOfMonth} onChange={(e) => setRecurringForm((p) => ({ ...p, dayOfMonth: e.target.value }))} />
+          <div className="flex gap-3 pt-2">
+            <Button type="button" variant="secondary" className="flex-1" onClick={() => { setRecurringModalOpen(false); setEditingRecurringId(null); }}>Cancelar</Button>
+            <Button type="submit" className="flex-1">Guardar</Button>
           </div>
         </form>
       </Modal>

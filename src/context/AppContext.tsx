@@ -6,6 +6,7 @@ import type {
   InvestmentEntry,
   CreditCardEntry,
   MonthlyBudget,
+  MonthlyPayslip,
   AppSettings,
 } from '../types';
 import { usePersistedReducer } from '../hooks/usePersistedReducer';
@@ -19,6 +20,7 @@ import {
 } from './reducers/investments.reducer';
 import { creditCardReducer, type CreditCardAction } from './reducers/credit-card.reducer';
 import { budgetsReducer, type BudgetAction } from './reducers/budgets.reducer';
+import { payslipsReducer, type PayslipAction } from './reducers/payslips.reducer';
 import { settingsReducer, type SettingsAction } from './reducers/settings.reducer';
 import { MIR_SALARY_TABLES, GUARD_SHIFT_RATES, ALL_DEFAULT_CATEGORIES, DEFAULT_INVESTMENT_TARGETS } from '../constants';
 
@@ -30,6 +32,7 @@ const defaultSettings: AppSettings = {
   categories: ALL_DEFAULT_CATEGORIES,
   investmentTargets: DEFAULT_INVESTMENT_TARGETS,
   emergencyFund: { targetMonths: 6, currentAmount: 0 },
+  recurringExpenses: [],
   theme: 'system',
 };
 
@@ -46,6 +49,8 @@ interface AppContextType {
   dispatchCreditCard: (action: CreditCardAction) => void;
   monthlyBudgets: MonthlyBudget[];
   dispatchBudgets: (action: BudgetAction) => void;
+  monthlyPayslips: MonthlyPayslip[];
+  dispatchPayslips: (action: PayslipAction) => void;
   settings: AppSettings;
   dispatchSettings: (action: SettingsAction) => void;
 }
@@ -71,6 +76,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [monthlyBudgets, dispatchBudgets] = usePersistedReducer<MonthlyBudget[], BudgetAction>(
     'monthlyBudgets', budgetsReducer, [],
   );
+  const [monthlyPayslips, dispatchPayslips] = usePersistedReducer<MonthlyPayslip[], PayslipAction>(
+    'monthlyPayslips', payslipsReducer, [],
+  );
   const [settings, dispatchSettings] = usePersistedReducer<AppSettings, SettingsAction>(
     'settings', settingsReducer, defaultSettings,
   );
@@ -90,6 +98,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         dispatchCreditCard,
         monthlyBudgets,
         dispatchBudgets,
+        monthlyPayslips,
+        dispatchPayslips,
         settings,
         dispatchSettings,
       }}
