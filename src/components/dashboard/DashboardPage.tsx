@@ -1,5 +1,6 @@
-import { useMemo } from 'react';
-import { TrendingUp, TrendingDown, PiggyBank, Percent, BarChart3 } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { TrendingUp, TrendingDown, PiggyBank, Percent, BarChart3, Plus, ArrowUpRight, ArrowDownRight, Minus } from 'lucide-react';
+import { nanoid } from 'nanoid';
 import {
   PieChart,
   Pie,
@@ -17,12 +18,17 @@ import { es } from 'date-fns/locale';
 
 import { useAppContext } from '../../context/AppContext';
 import { useSelectedMonth } from '../../hooks/useSelectedMonth';
-import { formatCurrency, formatPercent } from '../../utils';
+import { formatCurrency, formatPercent, currentDate } from '../../utils';
+import type { Transaction } from '../../types';
 import Card from '../ui/Card';
+import Button from '../ui/Button';
+import Modal from '../ui/Modal';
+import Input from '../ui/Input';
+import Select from '../ui/Select';
 import EmptyState from '../ui/EmptyState';
 
 export default function DashboardPage() {
-  const { transactions, guardShifts, monthlyPayslips, settings } = useAppContext();
+  const { transactions, guardShifts, monthlyPayslips, settings, dispatchTransactions } = useAppContext();
   const { selectedMonth } = useSelectedMonth();
 
   const monthTransactions = useMemo(
@@ -114,6 +120,73 @@ export default function DashboardPage() {
       return { month, Ingresos: inc, Gastos: exp };
     });
   }, [selectedMonth, transactions, guardShifts, monthlyPayslips]);
+
+  // Monthly comparison: compare each category vs average of last 3 months
+  const categoryComparisons = useMemo(() => {
+    const base = parse(selectedMonth + '-01', 'yyyy-MM-dd', new Date());
+    const prevMonths = [1, 2, 3].map((i) => format(subMonths(base, i), 'yyyy-MM'));
+
+    return expensesByCategory.map((cat) => {
+      // Find category id from name
+      const catConfig = settings.categories.find((c) => c.name === cat.name);
+      const catId = catConfig?.id ?? '';
+
+      // Average of last 3 months for this category
+      let totalPrev = 0;
+      let monthsWithData = 0;
+      for (const m of prevMonths) {
+        const amount = transactions
+          .filter((t) => t.type === 'expense' && t.category === catId && t.date.startsWith(m))
+          .reduce((s, t) => s + t.amount, 0);
+        if (amount > 0) {
+          totalPrev += amount;
+          monthsWithData++;
+        }
+      }
+
+      const avg = monthsWithData > 0 ? totalPrev / monthsWithData : 0;
+      const current = cat.value;
+      const diff = avg > 0 ? ((current - avg) / avg) * 100 : 0;
+
+      return {
+        name: cat.name,
+        color: cat.color,
+        current,
+        average: avg,
+        diffPct: diff,
+      };
+    }).filter((c) => c.average > 0 || c.current > 0)
+      .sort((a, b) => Math.abs(b.diffPct) - Math.abs(a.diffPct));
+  }, [expensesByCategory, selectedMonth, transactions, settings.categories]);
+
+  // Quick expense modal
+  const expenseCategories = useMemo(
+    () => settings.categories.filter((c) => c.type === 'expense'),
+    [settings.categories],
+  );
+  const [quickExpenseOpen, setQuickExpenseOpen] = useState(false);
+  const [qeAmount, setQeAmount] = useState('');
+  const [qeCategory, setQeCategory] = useState(expenseCategories[0]?.id ?? '');
+  const [qeDescription, setQeDescription] = useState('');
+
+  function saveQuickExpense() {
+    const amount = parseFloat(qeAmount);
+    if (!amount || amount <= 0) return;
+    const tx: Transaction = {
+      id: nanoid(),
+      date: currentDate(),
+      amount,
+      type: 'expense',
+      category: qeCategory,
+      description: qeDescription,
+      isRecurring: false,
+      createdAt: new Date().toISOString(),
+    };
+    dispatchTransactions({ type: 'ADD_TRANSACTION', payload: tx });
+    setQuickExpenseOpen(false);
+    setQeAmount('');
+    setQeDescription('');
+  }
 
   const hasData = monthTransactions.length > 0 || monthGuardShifts.length > 0;
 
@@ -249,6 +322,86 @@ export default function DashboardPage() {
           </div>
         </Card>
       </div>
+
+      {/* Monthly comparison */}
+      {categoryComparisons.length > 0 && (
+        <Card title="Comparativa vs media (3 meses)">
+          <div className="space-y-2.5">
+            {categoryComparisons.slice(0, 6).map((c) => (
+              <div key={c.name} className="flex items-center gap-3 text-xs">
+                <span
+                  className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
+                  style={{ backgroundColor: c.color }}
+                />
+                <span className="flex-1 text-surface-700 dark:text-surface-300 truncate">{c.name}</span>
+                <span className="text-surface-500 dark:text-surface-400 whitespace-nowrap">
+                  {formatCurrency(c.current)} vs {formatCurrency(c.average)}
+                </span>
+                <span className={`font-semibold whitespace-nowrap flex items-center gap-0.5 ${
+                  c.diffPct > 10 ? 'text-red-500' : c.diffPct < -10 ? 'text-green-600 dark:text-green-400' : 'text-surface-400'
+                }`}>
+                  {c.diffPct > 10 ? <ArrowUpRight size={12} /> : c.diffPct < -10 ? <ArrowDownRight size={12} /> : <Minus size={12} />}
+                  {Math.abs(c.diffPct).toFixed(0)}%
+                </span>
+              </div>
+            ))}
+          </div>
+          {categoryComparisons.some((c) => c.diffPct > 20) && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 mt-3">
+              Atencion: hay categorias con gasto significativamente superior a tu media.
+            </p>
+          )}
+        </Card>
+      )}
+
+      {/* Quick expense FAB (mobile) */}
+      <button
+        onClick={() => {
+          setQeAmount('');
+          setQeCategory(expenseCategories[0]?.id ?? '');
+          setQeDescription('');
+          setQuickExpenseOpen(true);
+        }}
+        className="fixed bottom-20 right-4 lg:hidden w-14 h-14 rounded-full bg-red-500 text-white shadow-lg flex items-center justify-center active:scale-95 transition-transform z-50"
+        title="Gasto rapido"
+      >
+        <Plus size={24} />
+      </button>
+
+      {/* Quick expense modal */}
+      <Modal open={quickExpenseOpen} onClose={() => setQuickExpenseOpen(false)} title="Gasto rapido">
+        <div className="space-y-4">
+          <Input
+            label="Importe"
+            type="number"
+            min="0"
+            step="0.01"
+            value={qeAmount}
+            onChange={(e) => setQeAmount(e.target.value)}
+            placeholder="0.00"
+            autoFocus
+          />
+          <Select
+            label="Categoria"
+            value={qeCategory}
+            onChange={(e) => setQeCategory(e.target.value)}
+            options={expenseCategories.map((c) => ({ value: c.id, label: c.name }))}
+          />
+          <Input
+            label="Descripcion (opcional)"
+            value={qeDescription}
+            onChange={(e) => setQeDescription(e.target.value)}
+            placeholder="Cafe, supermercado..."
+          />
+          <Button
+            className="w-full"
+            onClick={saveQuickExpense}
+            disabled={!qeAmount || parseFloat(qeAmount) <= 0}
+          >
+            Guardar gasto
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }

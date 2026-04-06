@@ -53,6 +53,10 @@ export const DEFAULT_INCOME_CATEGORIES: CategoryConfig[] = [
     subcategories: [], isDefault: true,
   },
   {
+    id: 'bizum', name: 'Bizum / Compartidos', type: 'income', color: '#0EA5E9', icon: 'Users',
+    subcategories: ['Cenas', 'Viajes', 'Compras', 'Varios'], isDefault: true,
+  },
+  {
     id: 'otros_ingresos', name: 'Otros ingresos', type: 'income', color: '#A3E635', icon: 'PlusCircle',
     subcategories: ['Devolucion IRPF', 'Regalos', 'Varios'], isDefault: true,
   },

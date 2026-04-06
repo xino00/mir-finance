@@ -20,6 +20,7 @@ import {
 } from 'recharts';
 
 import { useAppContext } from '../../context/AppContext';
+import { useSelectedMonth } from '../../hooks/useSelectedMonth';
 import { formatCurrency, formatPercent, currentDate } from '../../utils';
 import type { InvestmentFund, InvestmentEntry } from '../../types';
 
@@ -105,8 +106,12 @@ export default function InvestmentsPage() {
     dispatchInvestmentFunds,
     investmentEntries,
     dispatchInvestmentEntries,
+    transactions,
+    monthlyPayslips,
+    creditCardEntries,
     settings,
   } = useAppContext();
+  const { selectedMonth } = useSelectedMonth();
 
   // Modal state - funds
   const [fundModalOpen, setFundModalOpen] = useState(false);
@@ -520,6 +525,18 @@ export default function InvestmentsPage() {
         </Card>
       )}
 
+      {/* Monthly investment suggestion */}
+      <Card title="Cuanto invertir este mes">
+        <MonthlySuggestion
+          transactions={transactions}
+          monthlyPayslips={monthlyPayslips}
+          creditCardEntries={creditCardEntries}
+          selectedMonth={selectedMonth}
+          settings={settings}
+          onSetRebalAmount={setRebalAmount}
+        />
+      </Card>
+
       {/* Rebalancing suggestion */}
       {settings.investmentTargets.length > 0 && totalCurrentValue > 0 && (
         <Card
@@ -751,5 +768,124 @@ function KpiCard({ icon, label, value, colorClass, bgClass }: KpiCardProps) {
         </div>
       </div>
     </Card>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Monthly investment suggestion                                      */
+/* ------------------------------------------------------------------ */
+
+import type { Transaction, MonthlyPayslip, CreditCardEntry, AppSettings } from '../../types';
+
+interface MonthlySuggestionProps {
+  transactions: Transaction[];
+  monthlyPayslips: MonthlyPayslip[];
+  creditCardEntries: CreditCardEntry[];
+  selectedMonth: string;
+  settings: AppSettings;
+  onSetRebalAmount: (v: string) => void;
+}
+
+function MonthlySuggestion({
+  transactions,
+  monthlyPayslips,
+  creditCardEntries,
+  selectedMonth,
+  settings,
+  onSetRebalAmount,
+}: MonthlySuggestionProps) {
+  const payslip = monthlyPayslips.find((p) => p.month === selectedMonth);
+  const monthIncome = payslip
+    ? (payslip.actualNet ?? payslip.estimatedNet)
+    : 0;
+
+  const otherIncome = transactions
+    .filter((t) => t.type === 'income' && t.date.startsWith(selectedMonth))
+    .reduce((s, t) => s + t.amount, 0);
+
+  const monthExpenses = transactions
+    .filter((t) => t.type === 'expense' && t.date.startsWith(selectedMonth))
+    .reduce((s, t) => s + t.amount, 0);
+
+  const pendingDebt = creditCardEntries
+    .filter((e) => e.status !== 'pagado')
+    .reduce((s, e) => s + e.amount, 0);
+
+  const totalIncome = monthIncome + otherIncome;
+  const savings = totalIncome - monthExpenses;
+
+  // Emergency fund check
+  const { emergencyFund } = settings;
+  const needsEmergencyFund = emergencyFund.currentAmount < emergencyFund.targetMonths * (monthExpenses || 800);
+  const emergencyDeficit = Math.max(0, emergencyFund.targetMonths * (monthExpenses || 800) - emergencyFund.currentAmount);
+
+  // Investment suggestion logic:
+  // 1. Pay off debt first
+  // 2. Then build emergency fund
+  // 3. Then invest remainder
+  let suggestion = 0;
+  let explanation = '';
+
+  if (savings <= 0) {
+    explanation = 'Este mes no tienes margen de ahorro. Revisa tus gastos antes de invertir.';
+  } else if (pendingDebt > 0) {
+    const afterDebt = savings - pendingDebt;
+    if (afterDebt <= 0) {
+      explanation = `Prioridad: pagar deuda de tarjeta (${formatCurrency(pendingDebt)}). Despues de pagarla, no queda margen para invertir.`;
+    } else if (needsEmergencyFund) {
+      const toEmergency = Math.min(afterDebt, emergencyDeficit);
+      suggestion = Math.max(0, afterDebt - toEmergency);
+      explanation = `Tras pagar deuda (${formatCurrency(pendingDebt)}) y aportar al fondo de emergencia (${formatCurrency(toEmergency)}), puedes invertir el resto.`;
+    } else {
+      suggestion = afterDebt;
+      explanation = `Tras pagar la deuda de tarjeta (${formatCurrency(pendingDebt)}), puedes invertir el resto.`;
+    }
+  } else if (needsEmergencyFund) {
+    const toEmergency = Math.min(savings * 0.5, emergencyDeficit);
+    suggestion = Math.max(0, savings - toEmergency);
+    explanation = `Reparte entre fondo de emergencia (${formatCurrency(toEmergency)}) e inversion. Tu fondo de emergencia aun no esta completo.`;
+  } else {
+    // No debt, emergency fund OK → invest most of savings
+    suggestion = Math.round(savings * 0.7); // Keep 30% liquid
+    explanation = 'Sin deuda y fondo de emergencia OK. Invierte ~70% de tu ahorro y guarda un 30% liquido.';
+  }
+
+  suggestion = Math.round(Math.max(0, suggestion));
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-3 gap-3 text-center text-xs">
+        <div>
+          <p className="text-surface-500 dark:text-surface-400">Ingresos netos</p>
+          <p className="font-semibold text-green-600 dark:text-green-400">{formatCurrency(totalIncome)}</p>
+        </div>
+        <div>
+          <p className="text-surface-500 dark:text-surface-400">Gastos</p>
+          <p className="font-semibold text-red-500">{formatCurrency(monthExpenses)}</p>
+        </div>
+        <div>
+          <p className="text-surface-500 dark:text-surface-400">Ahorro</p>
+          <p className={`font-semibold ${savings >= 0 ? 'text-blue-600 dark:text-blue-400' : 'text-red-500'}`}>
+            {formatCurrency(savings)}
+          </p>
+        </div>
+      </div>
+
+      <div className="rounded-lg bg-primary-50 dark:bg-primary-900/20 p-3">
+        <p className="text-xs font-medium text-primary-700 dark:text-primary-300">
+          Sugerencia: invertir {formatCurrency(suggestion)} este mes
+        </p>
+        <p className="text-xs text-primary-600 dark:text-primary-400 mt-1">{explanation}</p>
+      </div>
+
+      {suggestion > 0 && (
+        <button
+          onClick={() => onSetRebalAmount(String(suggestion))}
+          className="text-xs text-primary-600 dark:text-primary-400 hover:underline"
+        >
+          Usar {formatCurrency(suggestion)} en la calculadora de rebalanceo
+        </button>
+      )}
+    </div>
   );
 }
