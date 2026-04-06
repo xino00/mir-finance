@@ -160,9 +160,15 @@ export default function IncomePage() {
   );
 
   const grossSalary = salaryEntry?.totalMonthly ?? 0;
+
+  // Paga extra: June and December get an extra monthly salary
+  const selectedMonthNum = parseInt(selectedMonth.split('-')[1], 10);
+  const isExtraPayMonth = selectedMonthNum === 6 || selectedMonthNum === 12;
+  const extraPayGross = isExtraPayMonth ? grossSalary : 0;
+
   const estimatedNet = useMemo(
-    () => estimatePayslipNet(grossSalary, previousMonthGuardsGross),
-    [grossSalary, previousMonthGuardsGross],
+    () => estimatePayslipNet(grossSalary + extraPayGross, previousMonthGuardsGross),
+    [grossSalary, extraPayGross, previousMonthGuardsGross],
   );
 
   // Existing payslip record for this month (if any)
@@ -416,6 +422,21 @@ export default function IncomePage() {
                     </p>
                   </div>
                 </div>
+
+                {/* Extra pay indicator */}
+                {isExtraPayMonth && (
+                  <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 p-2.5 flex items-center gap-2">
+                    <span className="text-amber-600 dark:text-amber-400 text-lg">*</span>
+                    <div>
+                      <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                        Paga extra ({selectedMonthNum === 6 ? 'junio' : 'diciembre'})
+                      </p>
+                      <p className="text-xs text-amber-600 dark:text-amber-500">
+                        +{formatCurrency(extraPayGross)} brutos incluidos en el calculo
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 {/* Divider */}
                 <div className="border-t border-surface-100 dark:border-surface-800" />

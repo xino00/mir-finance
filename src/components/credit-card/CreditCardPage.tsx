@@ -8,6 +8,7 @@ import {
   CheckCircle,
   AlertTriangle,
   CalendarClock,
+  TrendingDown,
 } from 'lucide-react';
 
 import { useAppContext } from '../../context/AppContext';
@@ -295,6 +296,52 @@ export default function CreditCardPage() {
           })}
         </div>
       </Card>
+
+      {/* Debt payoff strategy */}
+      {totalPendiente > 0 && (
+        <Card title="Plan de pago">
+          <div className="space-y-3">
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-lg bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400">
+                <TrendingDown size={20} />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-surface-800 dark:text-surface-200">
+                  Deuda total pendiente: {formatCurrency(totalPendiente)}
+                </p>
+                <p className="text-xs text-surface-500 dark:text-surface-400 mt-0.5">
+                  Sin intereses — paga todo antes del vencimiento para mantenerlo asi.
+                </p>
+              </div>
+            </div>
+
+            {/* Payment timeline */}
+            <div className="rounded-lg bg-surface-50 dark:bg-surface-800/50 p-3 space-y-2">
+              <p className="text-xs font-medium text-surface-700 dark:text-surface-300">Calendario de pagos:</p>
+              {entries
+                .filter((e) => e._effectiveStatus !== 'pagado')
+                .map((e) => (
+                  <div key={e.id} className="flex items-center justify-between text-xs">
+                    <span className="text-surface-600 dark:text-surface-400">
+                      {formatDate(e.dueDate)} — {e.description}
+                    </span>
+                    <span className="font-semibold text-surface-800 dark:text-surface-200">
+                      {formatCurrency(e.amount)}
+                    </span>
+                  </div>
+                ))}
+            </div>
+
+            <div className="rounded-lg bg-green-50 dark:bg-green-900/20 p-3">
+              <p className="text-xs text-green-700 dark:text-green-400">
+                <strong>Estrategia recomendada:</strong> Paga el total pendiente con la nomina del mes.
+                Despues, usa la tarjeta solo para gastos que puedas pagar al mes siguiente.
+                Objetivo: deuda = 0 al recibir cada nomina.
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* New / Edit modal */}
       <Modal

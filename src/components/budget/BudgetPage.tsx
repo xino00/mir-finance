@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { useSelectedMonth } from '../../hooks/useSelectedMonth';
+import { estimateMonthlyNet } from '../../utils/net-calculator';
 import Card from '../ui/Card';
 import Button from '../ui/Button';
 import Modal from '../ui/Modal';
@@ -8,8 +9,19 @@ import Input from '../ui/Input';
 import EmptyState from '../ui/EmptyState';
 import { formatCurrency } from '../../utils/formatters';
 import { Target, PiggyBank, AlertTriangle, Plus } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import type { MonthlyBudget, BudgetCategory } from '../../types';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  Cell,
+  Legend,
+  Area,
+  AreaChart,
+} from 'recharts';
+import type { MonthlyBudget, BudgetCategory, ResidencyYear } from '../../types';
 import { subMonths, format, parse } from 'date-fns';
 
 export default function BudgetPage() {
@@ -141,6 +153,45 @@ export default function BudgetPage() {
     setShowEmergencyModal(false);
   };
 
+  // R1→R5 long-term projection
+  const residencyYears: ResidencyYear[] = ['R1', 'R2', 'R3', 'R4', 'R5'];
+
+  const longTermProjection = useMemo(() => {
+    const monthlyExpenses = avgMonthlyExpenses > 0 ? avgMonthlyExpenses : 800;
+
+    const data: { year: string; netoMensual: number; gastos: number; ahorroMensual: number; ahorroAcumulado: number }[] = [];
+    let accumulated = emergencyFund.currentAmount;
+
+    for (let i = 0; i <= 4; i++) {
+      const yearKey = residencyYears[i];
+      const salary = settings.salaryTables.find((s) => s.year === yearKey);
+      if (!salary) continue;
+
+      const netMonthly = estimateMonthlyNet(salary.totalMonthly);
+
+      // Assume expenses grow 3% per year (inflation)
+      const yearExpenses = monthlyExpenses * Math.pow(1.03, i);
+      const monthlySavings = netMonthly - yearExpenses;
+
+      // 12 months of savings (simplified)
+      accumulated += monthlySavings * 12;
+
+      // Extra pagas (2 per year, net estimated at ~85% of gross monthly)
+      const extraPay = salary.totalMonthly * 0.85 * 2;
+      accumulated += extraPay;
+
+      data.push({
+        year: yearKey,
+        netoMensual: Math.round(netMonthly),
+        gastos: Math.round(yearExpenses),
+        ahorroMensual: Math.round(monthlySavings),
+        ahorroAcumulado: Math.round(Math.max(0, accumulated)),
+      });
+    }
+
+    return data;
+  }, [settings.salaryTables, avgMonthlyExpenses, emergencyFund.currentAmount, residencyYears]);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -259,6 +310,71 @@ export default function BudgetPage() {
           </div>
         </Card>
       </div>
+
+      {/* R1→R5 Long-term projection */}
+      <Card title="Proyeccion R1 → R5">
+        <div className="space-y-4">
+          <p className="text-xs text-surface-500 dark:text-surface-400">
+            Estimacion basada en tu gasto medio actual ({formatCurrency(avgMonthlyExpenses)}/mes), salarios BOCAM y 2 pagas extras/ano. Inflacion estimada: 3%/ano.
+          </p>
+          <div className="h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={longTermProjection}>
+                <XAxis dataKey="year" tick={{ fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} />
+                <Tooltip
+                  formatter={(value) => formatCurrency(Number(value))}
+                  contentStyle={{ borderRadius: '0.5rem', fontSize: '0.75rem', border: '1px solid #e2e8f0' }}
+                />
+                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '0.75rem' }} />
+                <Area
+                  type="monotone"
+                  dataKey="ahorroAcumulado"
+                  name="Ahorro acumulado"
+                  stroke="#3B82F6"
+                  fill="#3B82F6"
+                  fillOpacity={0.15}
+                  strokeWidth={2}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Table breakdown */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-surface-500 border-b border-surface-100 dark:border-surface-800">
+                  <th className="py-1.5 pr-3">Ano</th>
+                  <th className="py-1.5 pr-3">Neto/mes</th>
+                  <th className="py-1.5 pr-3">Gastos/mes</th>
+                  <th className="py-1.5 pr-3">Ahorro/mes</th>
+                  <th className="py-1.5">Acumulado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {longTermProjection.map((row) => (
+                  <tr
+                    key={row.year}
+                    className={`border-b border-surface-50 dark:border-surface-800/50 ${
+                      row.year === settings.currentResidencyYear ? 'bg-primary-50/50 dark:bg-primary-900/10 font-medium' : ''
+                    }`}
+                  >
+                    <td className="py-1.5 pr-3 font-medium">{row.year}</td>
+                    <td className="py-1.5 pr-3 text-green-600 dark:text-green-400">{formatCurrency(row.netoMensual)}</td>
+                    <td className="py-1.5 pr-3 text-red-500">{formatCurrency(row.gastos)}</td>
+                    <td className="py-1.5 pr-3 text-blue-600 dark:text-blue-400">{formatCurrency(row.ahorroMensual)}</td>
+                    <td className="py-1.5 font-semibold text-blue-700 dark:text-blue-300">{formatCurrency(row.ahorroAcumulado)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-surface-400 italic">
+            Al terminar R5 tendras aprox. {formatCurrency(longTermProjection[longTermProjection.length - 1]?.ahorroAcumulado ?? 0)} ahorrados (sin contar guardias ni inversiones).
+          </p>
+        </div>
+      </Card>
 
       {/* Budget Modal */}
       <Modal open={showModal} onClose={() => setShowModal(false)} title="Presupuesto mensual">

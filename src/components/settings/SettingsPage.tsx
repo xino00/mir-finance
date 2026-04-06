@@ -8,14 +8,18 @@ import Modal from '../ui/Modal';
 import { formatCurrency } from '../../utils/formatters';
 import { exportData, importData } from '../../utils/export-import';
 import type { AppState, ResidencyYear, CategoryConfig } from '../../types';
-import { Download, Upload, Sun, Moon, Monitor, Trash2, Plus, Sheet, Link, Unlink } from 'lucide-react';
+import { Download, Upload, Sun, Moon, Monitor, Trash2, Plus, Sheet, Link, Unlink, FileSpreadsheet } from 'lucide-react';
 import { nanoid } from 'nanoid';
+import { parseBankCsv } from '../../utils/csv-import';
+import type { Transaction } from '../../types';
 
 export default function SettingsPage() {
   const ctx = useAppContext();
   const { settings, dispatchSettings } = ctx;
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const csvInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
+  const [importingCsv, setImportingCsv] = useState(false);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [editingCategory, setEditingCategory] = useState<CategoryConfig | null>(null);
 
@@ -66,6 +70,53 @@ export default function SettingsPage() {
     } finally {
       setImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleCsvImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportingCsv(true);
+    try {
+      const text = await file.text();
+      const rows = parseBankCsv(text);
+      if (rows.length === 0) {
+        alert('No se encontraron transacciones en el CSV.');
+        return;
+      }
+
+      const expenses = rows.filter((r) => r.type === 'expense');
+      const incomes = rows.filter((r) => r.type === 'income');
+      const source = rows[0]?.source === 'revolut' ? 'Revolut' : rows[0]?.source === 'sabadell' ? 'Sabadell' : 'banco';
+
+      if (!window.confirm(
+        `CSV de ${source}: ${rows.length} movimientos (${expenses.length} gastos, ${incomes.length} ingresos).\n\n¿Importar todos?`
+      )) return;
+
+      // Find default categories
+      const defaultExpenseCat = settings.categories.find((c) => c.type === 'expense')?.id ?? '';
+      const defaultIncomeCat = settings.categories.find((c) => c.type === 'income')?.id ?? '';
+
+      for (const row of rows) {
+        const tx: Transaction = {
+          id: nanoid(),
+          date: row.date,
+          amount: row.amount,
+          type: row.type,
+          category: row.type === 'expense' ? defaultExpenseCat : defaultIncomeCat,
+          description: row.description,
+          isRecurring: false,
+          createdAt: new Date().toISOString(),
+        };
+        ctx.dispatchTransactions({ type: 'ADD_TRANSACTION', payload: tx });
+      }
+
+      alert(`${rows.length} movimientos importados desde ${source}.`);
+    } catch (err) {
+      alert(`Error: ${err instanceof Error ? err.message : 'Error desconocido'}`);
+    } finally {
+      setImportingCsv(false);
+      if (csvInputRef.current) csvInputRef.current.value = '';
     }
   };
 
@@ -363,6 +414,33 @@ export default function SettingsPage() {
               </div>
             </>
           )}
+        </div>
+      </Card>
+
+      {/* CSV Import */}
+      <Card title="Importar extracto bancario">
+        <div className="space-y-3">
+          <p className="text-xs text-surface-500 dark:text-surface-400">
+            Importa movimientos desde un CSV de Revolut o Sabadell. Se detecta el formato automaticamente.
+          </p>
+          <Button
+            onClick={() => csvInputRef.current?.click()}
+            variant="secondary"
+            className="w-full"
+            disabled={importingCsv}
+          >
+            <FileSpreadsheet size={16} /> {importingCsv ? 'Importando...' : 'Importar CSV'}
+          </Button>
+          <input
+            ref={csvInputRef}
+            type="file"
+            accept=".csv,.txt"
+            onChange={handleCsvImport}
+            className="hidden"
+          />
+          <p className="text-xs text-surface-400">
+            Formatos soportados: Revolut (CSV), Sabadell (CSV con ; o ,). Los gastos se asignan a la categoria por defecto — puedes editarlos despues.
+          </p>
         </div>
       </Card>
 
