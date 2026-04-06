@@ -1,10 +1,11 @@
 import { useMemo, useState, useEffect } from 'react';
-import { Plus, Receipt, Pencil, Trash2, RepeatIcon, Lock } from 'lucide-react';
+import { Plus, Receipt, Pencil, Trash2, RepeatIcon, Lock, RefreshCw } from 'lucide-react';
 import { nanoid } from 'nanoid';
 
 import { useAppContext } from '../../context/AppContext';
 import { useSelectedMonth } from '../../hooks/useSelectedMonth';
 import { formatCurrency, formatDate, currentDate } from '../../utils';
+import { fetchGoogleSheet } from '../../utils/google-sheets';
 import type { Transaction, RecurringExpense } from '../../types';
 
 import Card from '../ui/Card';
@@ -263,17 +264,79 @@ export default function ExpensesPage() {
     });
   }
 
+  /* ---- Google Sheets sync ---- */
+  const [syncing, setSyncing] = useState(false);
+
+  async function handleGoogleSync() {
+    if (!settings.googleSheetId) return;
+    setSyncing(true);
+    try {
+      const rows = await fetchGoogleSheet(settings.googleSheetId);
+      const alreadySynced = settings.googleSheetSyncedRows ?? 0;
+      const newRows = rows.slice(alreadySynced);
+
+      if (newRows.length === 0) {
+        alert('No hay nuevos gastos para importar.');
+        setSyncing(false);
+        return;
+      }
+
+      let imported = 0;
+      for (const row of newRows) {
+        // Match category name to category ID
+        const cat = expenseCategories.find(
+          (c) => c.name.toLowerCase() === row.category.toLowerCase(),
+        );
+        const catId = cat?.id ?? defaultCatId;
+
+        const tx: Transaction = {
+          id: nanoid(),
+          date: row.date,
+          amount: row.amount,
+          type: 'expense',
+          category: catId,
+          description: row.description,
+          isRecurring: false,
+          fromRecurringId: undefined,
+          createdAt: new Date().toISOString(),
+        };
+        dispatchTransactions({ type: 'ADD_TRANSACTION', payload: tx });
+        imported++;
+      }
+
+      dispatchSettings({
+        type: 'UPDATE_SETTINGS',
+        payload: {
+          googleSheetSyncedRows: rows.length,
+          googleSheetLastSync: new Date().toISOString(),
+        },
+      });
+
+      alert(`${imported} gasto${imported !== 1 ? 's' : ''} importado${imported !== 1 ? 's' : ''} desde Google Forms.`);
+    } catch (err) {
+      alert(`Error al sincronizar: ${err instanceof Error ? err.message : 'Error desconocido'}`);
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   /* ---- render ---- */
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-bold text-surface-800 dark:text-surface-100">Gastos</h1>
         <div className="flex gap-2">
+          {settings.googleSheetId && (
+            <Button onClick={handleGoogleSync} variant="secondary" size="sm" disabled={syncing}>
+              <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} />
+              {syncing ? 'Sync...' : 'Sincronizar'}
+            </Button>
+          )}
           <Button onClick={openNewRecurring} variant="secondary" size="sm">
-            <Lock size={14} /> Gastos fijos
+            <Lock size={14} /> Fijos
           </Button>
           <Button onClick={openNew} size="sm">
-            <Plus size={16} /> Nuevo gasto
+            <Plus size={16} /> Nuevo
           </Button>
         </div>
       </div>

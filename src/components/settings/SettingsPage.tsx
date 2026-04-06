@@ -8,7 +8,7 @@ import Modal from '../ui/Modal';
 import { formatCurrency } from '../../utils/formatters';
 import { exportData, importData } from '../../utils/export-import';
 import type { AppState, ResidencyYear, CategoryConfig } from '../../types';
-import { Download, Upload, Sun, Moon, Monitor, Trash2, Plus } from 'lucide-react';
+import { Download, Upload, Sun, Moon, Monitor, Trash2, Plus, Sheet, Link, Unlink } from 'lucide-react';
 import { nanoid } from 'nanoid';
 
 export default function SettingsPage() {
@@ -277,6 +277,92 @@ export default function SettingsPage() {
               )}
             </div>
           ))}
+        </div>
+      </Card>
+
+      {/* Google Sheets sync */}
+      <Card
+        title="Google Forms / Sheets"
+        action={
+          settings.googleSheetId ? (
+            <button
+              onClick={() => {
+                if (window.confirm('¿Desvincular la hoja de Google Sheets?')) {
+                  dispatchSettings({
+                    type: 'UPDATE_SETTINGS',
+                    payload: { googleSheetId: undefined, googleSheetLastSync: undefined, googleSheetSyncedRows: undefined },
+                  });
+                }
+              }}
+              className="flex items-center gap-1 text-xs text-red-500 hover:text-red-600"
+            >
+              <Unlink size={12} /> Desvincular
+            </button>
+          ) : null
+        }
+      >
+        <div className="space-y-3">
+          {settings.googleSheetId ? (
+            <>
+              <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
+                <Link size={14} />
+                <span>Hoja vinculada</span>
+              </div>
+              <p className="text-xs text-surface-500 dark:text-surface-400 font-mono break-all">
+                ID: {settings.googleSheetId}
+              </p>
+              {settings.googleSheetLastSync && (
+                <p className="text-xs text-surface-400">
+                  Ultima sincronizacion: {new Date(settings.googleSheetLastSync).toLocaleString('es-ES')}
+                  {settings.googleSheetSyncedRows != null && ` (${settings.googleSheetSyncedRows} filas)`}
+                </p>
+              )}
+              <p className="text-xs text-surface-500">
+                Ve a la pestaña de Gastos y pulsa "Sincronizar" para importar nuevos gastos del formulario.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-surface-500 dark:text-surface-400">
+                Conecta un Google Form para registrar gastos desde el movil. Los gastos se importaran automaticamente en la app.
+              </p>
+              <div className="space-y-2">
+                <Input
+                  label="ID de la hoja de Google Sheets"
+                  placeholder="Ej: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms"
+                  value=""
+                  onChange={() => {}}
+                  id="sheet-id-input"
+                />
+                <p className="text-xs text-surface-400">
+                  Copia el ID de la URL de tu Sheet: docs.google.com/spreadsheets/d/<strong>ID_AQUI</strong>/edit
+                </p>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    const input = document.getElementById('sheet-id-input') as HTMLInputElement;
+                    const id = input?.value?.trim();
+                    if (!id) { alert('Introduce el ID de la hoja'); return; }
+                    dispatchSettings({
+                      type: 'UPDATE_SETTINGS',
+                      payload: { googleSheetId: id },
+                    });
+                  }}
+                >
+                  <Sheet size={14} /> Vincular hoja
+                </Button>
+              </div>
+              <div className="rounded-lg bg-surface-50 dark:bg-surface-800/50 p-3 text-xs text-surface-500 dark:text-surface-400 space-y-1.5">
+                <p className="font-medium text-surface-700 dark:text-surface-300">Como configurarlo:</p>
+                <ol className="list-decimal list-inside space-y-1">
+                  <li>Crea un Google Form con: <strong>Importe</strong>, <strong>Categoria</strong> (desplegable), <strong>Descripcion</strong>, <strong>Fecha</strong></li>
+                  <li>En respuestas, haz clic en el icono de Sheets para crear la hoja</li>
+                  <li>En la hoja, ve a <strong>Archivo → Compartir → Publicar en la web</strong></li>
+                  <li>Copia el ID de la URL de la hoja y pegalo aqui arriba</li>
+                </ol>
+              </div>
+            </>
+          )}
         </div>
       </Card>
 

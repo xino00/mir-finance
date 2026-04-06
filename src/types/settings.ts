@@ -32,4 +32,7 @@ export interface AppSettings {
   recurringExpenses: RecurringExpense[];
   theme: 'light' | 'dark' | 'system';
   lastExportDate?: string;
+  googleSheetId?: string;
+  googleSheetLastSync?: string; // ISO timestamp of last sync
+  googleSheetSyncedRows?: number; // number of rows already imported
 }
