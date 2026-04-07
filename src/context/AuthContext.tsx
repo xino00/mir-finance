@@ -30,7 +30,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
     const init = code
-      ? supabase.auth.exchangeCodeForSession(code).then(() => {
+      ? supabase.auth.exchangeCodeForSession(code).then(({ error }) => {
+          if (error) {
+            console.error('[Auth] Code exchange failed:', error.message);
+            throw error;
+          }
+          console.log('[Auth] Code exchanged successfully');
           // Clean the ?code= from the URL without reloading
           window.history.replaceState({}, '', window.location.pathname + window.location.hash);
           return supabase.auth.getSession();
@@ -38,11 +43,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       : supabase.auth.getSession();
 
     init.then(({ data }) => {
+      console.log('[Auth] Session:', data.session ? 'found' : 'none');
       setSession(data.session);
       setUser(data.session?.user ?? null);
       setLoading(false);
-    }).catch(() => {
-      setAuthError('Error al recuperar la sesión');
+    }).catch((err: unknown) => {
+      console.error('[Auth] Init error:', err);
+      setAuthError(err instanceof Error ? err.message : 'Error al recuperar la sesión');
       setLoading(false);
     });
 

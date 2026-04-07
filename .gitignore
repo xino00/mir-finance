@@ -33,3 +33,6 @@ supabase/.temp
 
 # Claude Code working files
 .claude/
+
+# Secrets directory
+Secretos no tocar/
